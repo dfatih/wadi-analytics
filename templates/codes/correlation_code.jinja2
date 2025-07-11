@@ -1,0 +1,37 @@
+import pandas as pd
+import os, json
+from scipy.stats import spearmanr
+
+# --- Load ---
+df = pd.read_json("results/analysis_input.json")
+if df.empty:
+    print(json.dumps({"error": "input file is empty"}))
+    exit()
+
+# --- Columns ---
+x_col = "site_NoOfFeatures"
+y_col = "site_Shape_Area"
+
+if x_col not in df.columns or y_col not in df.columns:
+    print(json.dumps({"error": f"Missing required columns: {x_col}, {y_col}"}))
+    exit()
+
+# --- Drop NA ---
+df = df.dropna(subset=[x_col, y_col])
+
+# --- Compute correlation ---
+coef, p = spearmanr(df[x_col], df[y_col])
+
+result = {
+    "x_column": x_col,
+    "y_column": y_col,
+    "spearman_r": coef,
+    "p_value": p,
+    "n": len(df)
+}
+
+os.makedirs("results/correlation", exist_ok=True)
+with open("results/correlation/correlation_result.json", "w") as f:
+    json.dump(result, f, indent=2)
+
+print(json.dumps(result, indent=2))

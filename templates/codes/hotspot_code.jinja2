@@ -1,0 +1,54 @@
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+import os, json
+from esda.getisord import G_Local
+from libpysal.weights import DistanceBand
+
+# --- Load data ---
+df = pd.read_json("results/analysis_input.json")
+if df.empty:
+    print(json.dumps({"error": "input file is empty"}))
+    exit()
+
+# --- Config ---
+x_col = "{{ x_column }}"
+y_col = "{{ y_column }}"
+val_col = "{{ value_column }}"
+
+for col in [x_col, y_col, val_col]:
+    if col not in df.columns:
+        print(json.dumps({"error": f"Missing required column: {col}"}))
+        exit()
+
+# --- Create GeoDataFrame ---
+gdf = gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(df[x_col], df[y_col]), crs="EPSG:32636")
+
+# --- Weights ---
+w = DistanceBand.from_dataframe(gdf, threshold=5000, silence_warnings=True)
+
+# --- Hotspot Analysis ---
+model = G_Local(gdf[val_col], w)
+gdf["z_score"] = model.z_sim
+
+# --- Threshold ---
+z_threshold = 1.96  # ~95% confidence
+hotspots = gdf[gdf["z_score"] >= z_threshold].copy()
+
+# --- Output ---
+os.makedirs("results/hotspot", exist_ok=True)
+os.makedirs("results/visualisierung/hotspot", exist_ok=True)
+
+# GeoJSON
+hotspots.to_crs("EPSG:4326").to_file("results/visualisierung/hotspot/hotspot_result.geojson", driver="GeoJSON")
+
+# JSON Summary
+summary = {
+    "n_hotspots": len(hotspots),
+    "n_total": len(gdf),
+    "z_threshold": z_threshold
+}
+with open("results/hotspot/hotspot_result.json", "w") as f:
+    json.dump(summary, f, indent=2)
+
+print(json.dumps(summary, indent=2))

@@ -1,0 +1,57 @@
+# 🐍 Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.log
+*.sqlite3
+*.db
+
+# 🧪 Tests / Debug
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+*.log
+
+# 📦 Pakete & Cache
+*.egg-info/
+.eggs/
+*.bak
+*.swp
+
+# 📊 Ergebnisse & Zwischenstände
+results/
+logs/
+*.json
+*.geojson
+
+# 🛠 IDEs & Editor-spezifisch
+.vscode/
+.idea/
+*.iml
+
+# 📄 Daten (nur lokale oder temporäre Quellen)
+data/*.csv
+cache/
+
+# 🔐 Secrets & Umgebungsdateien
+.env
+.env.*
+secrets.toml
+*.key
+*.pem
+
+# 🚢 Docker
+*.pid
+*.tar
+*.lock
+docker-compose.override.yml
+
+# 🔄 Jupyter Notebooks (optional, falls nicht benutzt, entfernen)
+.ipynb_checkpoints/
+
+# ⚙️ Sonstige
+.DS_Store
+Thumbs.db

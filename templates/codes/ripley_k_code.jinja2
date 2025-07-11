@@ -1,0 +1,40 @@
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+from pointpats import PoissonPointProcess, distance_statistics
+import os, json, numpy as np
+
+df = pd.read_json("results/analysis_input.json")
+geometry = [Point(xy) for xy in zip(df["{{ x_column }}"], df["{{ y_column }}"])]
+gdf = gpd.GeoDataFrame(df, geometry=geometry, crs="EPSG:32636")
+
+gdf = gdf.dropna(subset=["{{ x_column }}", "{{ y_column }}"])
+if len(gdf) < 10:
+    print(json.dumps({"error": "Too few points"}))
+    exit()
+
+bounds = gdf.total_bounds
+window = [bounds[0], bounds[1], bounds[2], bounds[3]]
+n_points = len(gdf)
+
+pp = PoissonPointProcess(window, n_points, {{ simulations | default(99) }}, asPP=True)
+pp.generate()
+
+coords = np.array([[geom.x, geom.y] for geom in gdf.geometry])
+k = distance_statistics.K(coords, intervals={{ intervals | default(10) }}, method='ripley')
+
+result = {
+    "mean_distance": float(np.mean(k.r)),
+    "k_values": k.k.tolist(),
+    "r_values": k.r.tolist(),
+    "n": n_points
+}
+
+os.makedirs("results/ripley_k", exist_ok=True)
+os.makedirs("results/visualisierung/ripley_k", exist_ok=True)
+
+gdf.to_file("results/visualisierung/ripley_k/ripley_k_result.geojson", driver="GeoJSON")
+with open("results/ripley_k/ripley_k_result.json", "w") as f:
+    json.dump(result, f, indent=2)
+
+print(json.dumps(result))

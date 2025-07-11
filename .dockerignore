@@ -1,0 +1,11 @@
+# .dockerignore  –  alles, was nicht in den Image-Build gehört
+cache/                 # DuckDB, HF-Modelle, …
+data/
+logs/
+.neo4j/                # falls lokal
+__pycache__/
+*.pyc
+.git
+.gitignore
+*.ipynb
+.DS_Store

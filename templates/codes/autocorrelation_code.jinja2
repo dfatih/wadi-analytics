@@ -1,0 +1,60 @@
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+from esda.moran import Moran
+from libpysal.weights import DistanceBand
+import os, json, numpy as np, warnings
+
+warnings.filterwarnings("ignore", category=UserWarning)
+
+df = pd.read_json("results/analysis_input.json")
+
+if df.empty:
+    print(json.dumps({"error": "Input file is empty"}))
+    exit()
+
+geometry = [Point(xy) for xy in zip(df["feature_X"], df["feature_Y"])]
+gdf = gpd.GeoDataFrame(df, geometry=geometry, crs="EPSG:32636")
+
+{% if group_value is not none %}
+gdf = gdf[gdf["{{ group_column }}"] == "{{ group_value }}"].copy()
+{% endif %}
+
+if gdf.empty:
+    print(json.dumps({"error": "Filtered GeoDataFrame is empty"}))
+    exit()
+
+value_col = "{{ value_column | default('feature_count') }}"
+if value_col not in gdf.columns:
+    gdf[value_col] = gdf.groupby("SiteID")["SiteID"].transform("count")
+
+if value_col not in gdf.columns:
+    print(json.dumps({"error": "value_column missing or could not be derived"}))
+    exit()
+
+values = gdf[value_col]
+if np.var(values) == 0:
+    print(json.dumps({"error": "Variance of values is zero"}))
+    exit()
+
+w = DistanceBand.from_dataframe(gdf, threshold={{ distance_threshold | default(5000) }})
+moran = Moran(values, w)
+
+result = {
+    "I": moran.I,
+    "p_sim": moran.p_sim,
+    "n": moran.n,
+    "var": float(np.var(values)),
+    "islands": list(w.islands),
+    "n_islands": len(w.islands),
+    "pct_islands": round(len(w.islands) / len(gdf) * 100, 2)
+}
+
+os.makedirs("results/autocorrelation", exist_ok=True)
+os.makedirs("results/visualisierung/autocorrelation", exist_ok=True)
+
+gdf.to_file("results/visualisierung/autocorrelation/autocorrelation_result.geojson", driver="GeoJSON")
+with open("results/autocorrelation/autocorrelation_result.json", "w") as f:
+    json.dump(result, f, indent=2)
+
+print(json.dumps(result))

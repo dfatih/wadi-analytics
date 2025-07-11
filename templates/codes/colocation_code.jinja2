@@ -1,0 +1,94 @@
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+import os, json
+
+# --- Load data ---
+df = pd.read_json("results/analysis_input.json")
+if df.empty:
+    print(json.dumps({"error": "Input file is empty"}))
+    exit()
+
+# --- Create geometry ---
+df["geometry"] = [Point(xy) for xy in zip(df["feature_X"], df["feature_Y"])]
+gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:32636")
+
+# --- Extract params ---
+group_a_labels = {{ group_a | tojson }}
+group_b_labels = {{ group_b | tojson }}
+group_a_type = "{{ group_a_type }}"
+group_b_type = "{{ group_b_type }}"
+filter_col = "{{ filter_a_column | default('') }}"
+filter_val = "{{ filter_a_value | default('') }}"
+distance = {{ distance_threshold | default(5000) }}
+
+# --- Validate type columns ---
+col_a = "feature_Category" if group_a_type == "Feature" else "site_Category"
+col_b = "feature_Category" if group_b_type == "Feature" else "site_Category"
+
+if col_a not in gdf.columns:
+    print(json.dumps({"error": f"Missing required column for group A: {col_a}"}))
+    exit()
+
+if col_b not in gdf.columns:
+    print(json.dumps({"error": f"Missing required column for group B: {col_b}"}))
+    exit()
+
+# --- Debug-Ausgabe vor Filterung ---
+sample = gdf.head(1).drop(columns=["geometry"]).to_dict()
+print(json.dumps({
+  "debug": "Pre-filter",
+  "group_a_labels": group_a_labels,
+  "group_b_labels": group_b_labels,
+  "group_a_type": group_a_type,
+  "group_b_type": group_b_type,
+  "col_a": col_a,
+  "col_b": col_b,
+  "rows_total": len(gdf),
+  "sample": sample
+}, indent=2))
+
+# --- Filter group A ---
+group_a = gdf[gdf[col_a].notna() & gdf[col_a].isin(group_a_labels)].copy()
+
+if filter_col and filter_val:
+    if filter_col not in group_a.columns:
+        print(json.dumps({"error": f"Missing filter column: {filter_col}"}))
+        exit()
+    group_a = group_a[group_a[filter_col] == filter_val].copy()
+
+# --- Filter group B ---
+group_b = gdf[gdf[col_b].notna() & gdf[col_b].isin(group_b_labels)].copy()
+
+# --- Exit on empty ---
+if group_a.empty or group_b.empty:
+    print(json.dumps({
+        "error": "One of the filtered groups is empty",
+        "group_a_len": len(group_a),
+        "group_b_len": len(group_b)
+    }))
+    exit()
+
+# --- Spatial Join ---
+group_a["geometry_buffer"] = group_a.geometry.buffer(distance)
+join_result = gpd.sjoin(group_a.set_geometry("geometry_buffer"), group_b, predicate="intersects", how="inner")
+
+if "FeatureID_left" not in join_result.columns or "FeatureID_right" not in join_result.columns:
+    print(json.dumps({"error": "Join failed or missing FeatureID columns"}))
+    exit()
+
+# --- Merge geometry ---
+result = join_result[["FeatureID_left", "FeatureID_right"]].drop_duplicates()
+result = result.merge(group_b[["FeatureID", "geometry"]], left_on="FeatureID_right", right_on="FeatureID")
+
+# --- Output ---
+os.makedirs("results/colocation", exist_ok=True)
+os.makedirs("results/visualisierung/colocation", exist_ok=True)
+
+geo_result = gpd.GeoDataFrame(result, geometry="geometry", crs="EPSG:32636").to_crs("EPSG:4326")
+geo_result.to_file("results/visualisierung/colocation/colocation_result.geojson", driver="GeoJSON")
+
+with open("results/colocation/colocation_result.json", "w") as f:
+    json.dump({"n_matches": len(geo_result)}, f, indent=2)
+
+print(json.dumps({"n_matches": len(geo_result)}, indent=2))

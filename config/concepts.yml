@@ -1,0 +1,121 @@
+feature_keys:
+  - FeatureID
+  - Category
+  - Category2
+  - Age
+  - Condition
+  - Height
+  - Length
+  - Width
+  - Location1
+  - Location2
+  - X
+  - Y
+  - Lon
+  - Lat
+  - Rockart1
+  - Rockart2
+  - Rockart3
+  - Rockart4
+  - Rockart5
+  - Rockart6
+  - embedding
+  - geometry
+
+site_keys:
+  - SiteID
+  - Category
+  - Surface
+  - NoOfFeatures
+  - Location1
+  - Location2
+  - X
+  - Y
+  - Lon
+  - Lat
+  - Shape_Area
+  - Shape_Length
+  - embedding
+  - geometry
+
+mobility_indicators:
+  - shelter
+  - stoneplace
+  - camp site
+  - fireplace
+  - gravel platform
+
+sedentary_indicators:
+  - habitation site
+  - hut
+  - settlement
+
+water_sources:
+  - well
+
+rock_art_indicators:
+  - rock art
+  - RockArt1
+  - RockArt2
+  - RockArt3
+  - RockArt4
+  - RockArt5
+  - RockArt6
+
+grave_categories_site:
+  - graves
+  - tumulus
+  - box graves
+  - cleft burial
+  - dome grave
+
+grave_categories_feature:
+  - grave
+
+stone_features:
+  - stone features
+  - stonering
+  - wall
+  - concentration of stones
+
+site_surface_types:
+  - bare
+  - partly overgrown
+  - overgrown
+  - campsite
+  - unknown
+
+location_terms:
+  - ridge
+  - slope
+  - terrace
+  - riparian
+  - dyke
+  - pathway
+  - khor
+  - plain
+  - hinterland
+  - Hangfuss
+  - plateau
+  - pediment
+
+rockart_motifs:
+  - geometrische Symbole
+  - andere
+  - antropomorphe Figuren (unbewaffnet)
+  - astronomische Symbole
+  - Kamele
+  - Kamele ohne Reiter
+  - Rinder andere
+
+category_map:
+  grave: Feature
+  graves: Site
+  box graves: Site
+  cleft burial: Site
+  dome grave: Site
+  tumulus: Site
+  rock art: Feature
+  settlement: Feature
+  habitation site: Feature
+  well: Site

@@ -1,0 +1,33 @@
+You are a geospatial analyst.
+
+Based on the user question, extracted semantic structure, and concepts, return the necessary parameters for a spatial autocorrelation analysis.
+
+User Question:
+{{ question }}
+
+Concepts:
+{{ concepts | tojson(indent=2) }}
+
+Structure:
+{{ structure | tojson(indent=2) }}
+
+Output Format (JSON only):
+```json
+{
+  "group_column": "feature_Category",
+  "group_value": null,
+  "value_column": "feature_count",
+  "x_column": "feature_X",
+  "y_column": "feature_Y",
+  "distance_threshold": 5000
+}
+```
+
+Instructions:
+- Only use the following columns for all metrics, filters, and groupings:
+- Site keys: {{ concepts.site_keys | join(', ') }}
+- Feature keys: {{ concepts.feature_keys | join(', ') }}
+- Never use any analytical or computed fields such as 'significance', 'colocation_significance', or 'statistic'.
+- Always prefix all field names with 'site_' or 'feature_' according to the node type.
+
+Return only the parameter JSON, without markdown, comments, or explanations.

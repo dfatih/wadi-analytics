@@ -1,0 +1,35 @@
+You are a geospatial data analyst.
+
+Based on the user question and the extracted semantic structure, return robust parameters for a colocation analysis.
+
+User Question:
+{{ question }}
+
+Concepts:
+{{ concepts | tojson(indent=2) }}
+
+Structure:
+{{ structure | tojson(indent=2) }}
+
+Expected Output Format:
+```json
+{
+  "group_a": ["tumulus"],
+  "group_b": ["settlement"],
+  "group_a_type": "Site",
+  "group_b_type": "Feature",
+  "filter_a_column": "site_Location1",
+  "filter_a_value": "ridge",
+  "distance_threshold": 5000
+}
+```
+
+Instructions:
+- Only use the following columns for all metrics, filters, and groupings:
+- Site keys: {{ concepts.site_keys | join(', ') }}
+- Feature keys: {{ concepts.feature_keys | join(', ') }}
+- Never use any analytical or computed fields such as 'significance', 'colocation_significance', or 'statistic'.
+- Always prefix all field names with 'site_' or 'feature_' according to the node type.
+
+Return only the parameter JSON, without markdown, comments, or explanations.
+

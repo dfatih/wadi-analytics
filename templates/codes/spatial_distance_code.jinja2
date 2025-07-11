@@ -1,0 +1,73 @@
+import pandas as pd
+import geopandas as gpd
+from shapely.geometry import Point
+import os, json
+
+# --- Load data ---
+df = pd.read_json("results/analysis_input.json")
+if df.empty:
+    print(json.dumps({"error": "Input file is empty"}))
+    exit()
+
+# --- Geometry ---
+df["geometry"] = [Point(xy) for xy in zip(df["feature_X"], df["feature_Y"])]
+gdf = gpd.GeoDataFrame(df, geometry="geometry", crs="EPSG:32636")
+
+# --- Parameters ---
+group_a = {{ group_a | tojson }}
+group_b = {{ group_b | tojson }}
+x_col = "{{ x_column | default('feature_X') }}"
+y_col = "{{ y_column | default('feature_Y') }}"
+
+if not group_a or not group_b:
+    print(json.dumps({"error": "Missing group_a or group_b"}))
+    exit()
+
+if x_col not in df.columns or y_col not in df.columns:
+    print(json.dumps({"error": f"Missing x/y columns: {x_col}, {y_col}"}))
+    exit()
+
+# --- Debug Info ---
+print(json.dumps({
+  "debug": "Pre-filter",
+  "group_a": group_a,
+  "group_b": group_b,
+  "available_categories": df["feature_Category"].dropna().unique().tolist(),
+  "row_count": len(df)
+}, indent=2))
+
+# --- Filter Gruppen (robust gegen NaN) ---
+a_df = gdf[gdf["feature_Category"].notna() & gdf["feature_Category"].isin(group_a)].copy()
+b_df = gdf[gdf["feature_Category"].notna() & gdf["feature_Category"].isin(group_b)].copy()
+
+if a_df.empty or b_df.empty:
+    print(json.dumps({
+        "error": "Filtered group A or B is empty",
+        "group_a_len": len(a_df),
+        "group_b_len": len(b_df)
+    }))
+    exit()
+
+# --- Distanzberechnung ---
+from scipy.spatial import cKDTree
+import numpy as np
+
+coords_a = a_df[[x_col, y_col]].to_numpy()
+coords_b = b_df[[x_col, y_col]].to_numpy()
+
+kdtree_b = cKDTree(coords_b)
+distances, _ = kdtree_b.query(coords_a, k=1)
+
+result = {
+    "mean_distance": float(np.mean(distances)),
+    "std_distance": float(np.std(distances)),
+    "min_distance": float(np.min(distances)),
+    "max_distance": float(np.max(distances)),
+    "n_pairs": len(distances)
+}
+
+os.makedirs("results/spatial_distance", exist_ok=True)
+with open("results/spatial_distance/spatial_distance_result.json", "w") as f:
+    json.dump(result, f, indent=2)
+
+print(json.dumps(result, indent=2))
