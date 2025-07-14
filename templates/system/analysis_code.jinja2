@@ -1,0 +1,243 @@
+import json, os, sys
+import numpy as np
+import pandas as pd
+from pathlib import Path
+from datetime import datetime
+import geopandas as gpd
+
+RESULT_DIR = Path("results") / "visualisierung" / "{{ analysis_type }}"
+RESULT_DIR.mkdir(parents=True, exist_ok=True)
+
+# ------------------------------------------------------------------------ Helper infrastructure
+def save_geojson(gdf, filename):
+    """Write GeoJSON preserving crs; overwrite if exists."""
+    out = RESULT_DIR / filename
+    if out.exists():
+        out.unlink()
+    gdf.to_file(out, driver="GeoJSON")
+    print(f"📝 GeoJSON written → {out}")
+
+
+def timestamp(msg):
+    print(f"[{datetime.utcnow().isoformat(timespec='seconds')}Z] {msg}")
+
+def _scalar(x):
+    """Return a Python float even if x is a 0‑D ndarray."""
+    return float(np.asarray(x).ravel()[0])
+
+# ------------------------------------------------------------------------ Load analysis input
+try:
+    df = pd.read_json("results/analysis_input.json")
+except Exception as ex:
+    sys.exit(f"❌ Unable to read analysis_input.json → {ex}")
+
+
+if "geometry" not in df.columns:
+    # Detect usable coordinate columns from the params dict
+    x_col = {{ params.x_column|tojson }}
+    y_col = {{ params.y_column|tojson }}
+    if x_col not in df.columns or y_col not in df.columns:
+        sys.exit("❌ No geometry and missing x/y columns in analysis_input.json.")
+    df = gpd.GeoDataFrame(
+        df,
+        geometry=gpd.points_from_xy(df[x_col], df[y_col]),
+        crs="EPSG:32636"  # or your project CRS
+    )
+
+timestamp(f"Input records: {len(df):,}")
+
+{% if analysis_type == "autocorrelation" %}
+# ======================================================================== AUTOCORRELATION ====
+from libpysal.weights import DistanceBand
+from esda.moran import Moran, Moran_Local
+
+def _scalar(x):      # ensures numpy 0‑d arrays → float
+    return float(np.asarray(x).ravel()[0])
+
+# ---- 1 Build or reuse numeric indicator ---------------------------------
+if {{ params.value_column is none }} and {{ params.group_a }} and {{ params.group_b }}:
+    timestamp("Creating binary indicator from group_a / group_b")
+    df["_binary"] = df[{{ params.group_column|tojson }}].apply(
+        lambda c: 1 if c in {{ params.group_a|tojson }}
+        else 0 if c in {{ params.group_b|tojson }} else np.nan
+    )
+    df = df.dropna(subset=["_binary"])
+    value_vec  = df["_binary"].values
+    value_col  = "_binary"
+else:
+    value_vec  = df[{{ params.value_column|tojson }}].astype(float).values
+    value_col  = {{ params.value_column|tojson }}
+
+if value_vec.var() == 0:
+    sys.exit("❌ Selected values have zero variance – cannot compute Moran’s I.")
+
+# ---- 2 Spatial weights --------------------------------------------------
+coords   = list(zip(df[{{ params.x_column|tojson }}], df[{{ params.y_column|tojson }}]))
+thresh   = {{ params.distance_threshold or 5000 }}
+w        = DistanceBand(coords, threshold=thresh, binary=True, silence_warnings=True)
+
+# ---- 3 Global Moran -----------------------------------------------------
+mi = Moran(value_vec, w, two_tailed=True)
+timestamp(
+    f"Moran’s I = {_scalar(mi.I):.4f}, "
+    f"z = {_scalar(mi.z):+.3f}, "
+    f"p = {_scalar(mi.p_sim):.4f} (simulated)"
+)
+
+# ---- 4 Local Moran (LISA) ----------------------------------------------
+lisa = Moran_Local(value_vec, w, permutations=999)
+
+df["I_local"] = lisa.Is
+df["I_z"]     = lisa.z_sim         # Z scores from permutation
+df["I_p"]     = lisa.p_sim         # pseudo p‑values
+df["cluster"] = lisa.q             # 1 HH, 2 LH, 3 LL, 4 HL, 0 not sig
+
+# convenient boolean for your map: only cells p ≤ 0.05
+df["sig05"]   = df["I_p"] <= 0.05
+
+# ---- 5 Diagnostics for the report --------------------------------------
+result = {
+    "I":        _scalar(mi.I),
+    "z":        _scalar(mi.z),
+    "p_sim":    _scalar(mi.p_sim),
+    "n":        mi.n,
+    "var":      float(np.var(value_vec)),
+    "islands":  list(w.islands),
+    "n_islands": len(w.islands),
+    "pct_islands": round(len(w.islands) / len(df) * 100, 2)
+}
+
+# ---- 6 Persist artefacts -----------------------------------------------
+Path("results/autocorrelation").mkdir(parents=True, exist_ok=True)
+df.to_file(
+    RESULT_DIR / "autocorrelation_result.geojson",
+    driver="GeoJSON"
+)
+with open("results/autocorrelation/autocorrelation_result.json", "w") as f:
+    json.dump(result, f, indent=2)
+
+timestamp("Summary JSON + GeoJSON written")
+print(json.dumps(result))          # will show up in Python stdout
+
+{% elif analysis_type == "colocation" %}
+# ======================================================================== COLOCATION ==========
+import shapely
+from scipy import stats
+
+# ---- 1 Split the dataframe into the two groups --------------------------
+a_mask = df[{{ params.group_a_type|tojson }} + "_Category"].isin({{ params.group_a|tojson }})
+b_mask = df[{{ params.group_b_type|tojson }} + "_Category"].isin({{ params.group_b|tojson }})
+
+df_a = df[a_mask].copy()
+df_b = df[b_mask].copy()
+
+if df_a.empty or df_b.empty:
+    sys.exit("❌ One of the filtered groups is empty – cannot run colocation.")
+
+# Optional attribute filters
+{% if params.filter_a_column and params.filter_a_value is not none %}
+df_a = df_a[df_a[{{ params.filter_a_column|tojson }}] == {{ params.filter_a_value|tojson }}]
+{% endif %}
+{% if params.filter_b_column and params.filter_b_value is not none %}
+df_b = df_b[df_b[{{ params.filter_b_column|tojson }}] == {{ params.filter_b_value|tojson }}]
+{% endif %}
+
+# ---- 2 Compute pairwise distances + counts within threshold -------------
+dist_thr = {{ params.distance_threshold or 5000 }}
+df_a["min_dist"] = shapely.distance(df_a.geometry.values[:, None], df_b.geometry.values).min(axis=1)
+df_b["min_dist"] = shapely.distance(df_b.geometry.values[:, None], df_a.geometry.values).min(axis=1)
+
+within_a = (df_a["min_dist"] <= dist_thr).sum()
+within_b = (df_b["min_dist"] <= dist_thr).sum()
+
+timestamp(f"Group A within {dist_thr} m = {within_a}/{len(df_a)}")
+timestamp(f"Group B within {dist_thr} m = {within_b}/{len(df_b)}")
+
+# ---- 3 Join–count significance via permutation -------------------------
+def perm_join_count(a_geom, b_geom, threshold, n=999):
+    """Return p‑value for observed join‑count under label permutation."""
+    obs = ((shapely.distance(a_geom.values[:, None], b_geom.values) <= threshold).any(axis=1)).sum()
+    combined = pd.concat([a_geom, b_geom])
+    counts = []
+    rng = np.random.default_rng(42)
+    for _ in range(n):
+        shuffled = combined.sample(frac=1, replace=False, random_state=rng).reset_index(drop=True)
+        a_sim = shuffled.iloc[:len(a_geom)]
+        b_sim = shuffled.iloc[len(a_geom):]
+        sim_cnt = ((shapely.distance(a_sim.values[:, None], b_sim.values) <= threshold).any(axis=1)).sum()
+        counts.append(sim_cnt)
+    p = (np.sum(np.array(counts) >= obs) + 1) / (n + 1)
+    return obs, p
+
+obs_cnt, p_val = perm_join_count(df_a.geometry, df_b.geometry, dist_thr)
+timestamp(f"Join‑count (observed) = {obs_cnt}, p ≈ {p_val:.4f}")
+
+# ---- 4 Output GeoJSONs ---------------------------------------------------
+save_geojson(df_a.assign(coloc_target="A"), "colocation_group_a.geojson")
+save_geojson(df_b.assign(coloc_target="B"), "colocation_group_b.geojson")
+
+{% elif analysis_type == "correlation" %}
+# ======================================================================== CORRELATION =========
+from scipy.stats import pearsonr, spearmanr
+
+x = df[{{ params.x_column|tojson }}].astype(float)
+y = df[{{ params.y_column|tojson }}].astype(float)
+
+rho_p, p_p = pearsonr(x, y)
+rho_s, p_s = spearmanr(x, y)
+
+timestamp(f"Pearson r = {rho_p:.4f} (p = {p_p:.4g})")
+timestamp(f"Spearman ρ = {rho_s:.4f} (p = {p_s:.4g})")
+
+{% elif analysis_type == "hotspot" %}
+# ======================================================================== HOTSPOT ============
+import contextily as cx
+from libpysal.weights import DistanceBand
+from esda.getisord import G_Local
+
+coords = list(zip(df[{{ params.x_column|tojson }}], df[{{ params.y_column|tojson }}]))
+w = DistanceBand(coords, threshold={{ params.distance_threshold or 5000 }}, binary=True, silence_warnings=True)
+
+gi = G_Local(df[{{ params.value_column|tojson }}].astype(float).values, w)
+df["GiZ"] = gi.Zs
+df["p_sim"] = gi.p_sim
+
+save_geojson(df[["GiZ", "p_sim", "geometry"]], "hotspot_map.geojson")
+
+{% elif analysis_type == "ripley_k" %}
+# ======================================================================== RIPLEY‑K ===========
+import pointpats
+pp = pointpats.PointPattern(list(zip(df[{{ params.x_column|tojson }}], df[{{ params.y_column|tojson }}])))
+r_max = max(pp.max_x - pp.min_x, pp.max_y - pp.min_y) / 2
+d = np.linspace(0, r_max, {{ params.intervals or 20 }})
+k_est = pointpats.centrography.K(pp, intervals=d, simulations={{ params.simulations or 999 }})
+np.savetxt(RESULT_DIR / "ripley_k.csv", np.column_stack([d, k_est.K, k_est.lower_envelope, k_est.upper_envelope]),
+           delimiter=",", header="d,K,lo,hi", comments="")
+timestamp("Ripley‑K table written → ripley_k.csv")
+
+{% elif analysis_type == "spatial_distance" %}
+# ======================================================================== SPATIAL DISTANCE ===
+from scipy.spatial.distance import cdist
+
+mask_a = df["feature_Category"].isin({{ params.group_a|tojson }})
+mask_b = df["feature_Category"].isin({{ params.group_b|tojson }})
+pts_a  = df.loc[mask_a, [{{ params.x_column|tojson }}, {{ params.y_column|tojson }}]].values
+pts_b  = df.loc[mask_b, [{{ params.x_column|tojson }}, {{ params.y_column|tojson }}]].values
+
+if pts_a.size == 0 or pts_b.size == 0:
+    sys.exit("❌ One of the groups is empty.")
+
+dist_mat = cdist(pts_a, pts_b)
+df_dist = pd.DataFrame({
+    "min_dist_A→B": dist_mat.min(axis=1),
+    "mean_dist_A→B": dist_mat.mean(axis=1)
+})
+df_dist.to_csv(RESULT_DIR / "distance_stats.csv", index=False)
+timestamp("Distance statistics written → distance_stats.csv")
+
+{% else %}
+# ======================================================================== FALLBACK ===========
+sys.exit("❌ Unknown analysis_type '{{ analysis_type }}' – no code generated.")
+{% endif %}
+
+timestamp("✅ Analysis finished.")

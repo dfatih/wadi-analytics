@@ -109,13 +109,85 @@ rockart_motifs:
   - Rinder andere
 
 category_map:
+  alam: Feature
+  big ruins: Site
+  box grave: Feature # box‑grave structures recorded as Features
+  campsite: Both # appears in Features & Sites
+  ceramics: Feature
+  cleft burial: Feature
+  concentration of stones: Feature
+  deposit: Feature
+  dome grave: Feature
+  fireplace: Feature
+  gibla: Feature
   grave: Feature
-  graves: Site
-  box graves: Site
-  cleft burial: Site
-  dome grave: Site
-  tumulus: Site
+  gravel feature: Feature
+  gravel platform: Feature
+  graves: Both
+  habitation site: Both
+  hut: Feature
+  lithics: Feature
+  other: Both
+  paved platform: Feature
+  platform: Feature
   rock art: Feature
+  rock gong: Feature
   settlement: Feature
+  shelter: Feature
+  stone feature: Feature
+  stone features: Site
+  stoneplace: Feature
+  stone ring: Feature
+  stonefeature: Feature
+  stonering: Feature
+  surface finds: Both
+  tethering stone: Feature
+  tumulus: Feature
+  well: Both
+  workshop: Feature
+
+category2_map:
+  all: Feature
+  campsite: Feature
+  ceramics: Feature
+  graves: Feature
   habitation site: Feature
-  well: Site
+  other: Feature
+  rock arts: Feature
+  stone features: Feature
+  surface finds: Feature
+
+location1_map:
+  Hangfuss: Both
+  dyke: Both
+  hangfuss: Both
+  hinteralnd: Feature # rare typo
+  hinterland: Both
+  khor: Both
+  pass: Both
+  pathway: Both
+  pediment: Both
+  plain: Both
+  plateau: Both
+  rdige: Feature # rare typo
+  rideg: Feature # rare typo
+  ridge: Both
+  riparian: Both
+  slope: Both
+  terrace: Both
+
+location2_map:
+  Hangfuss: Both
+  dyke: Both
+  hinteralnd: Feature
+  hinterland: Both
+  khor: Both
+  pathway: Both
+  pediment: Both
+  plain: Both
+  plateau: Both
+  ridge: Both
+  riaprian: Feature # rare typo
+  riparian: Both
+  slope: Both
+  terrace: Both

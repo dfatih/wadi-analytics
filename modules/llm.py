@@ -1,6 +1,7 @@
 import json
 from typing import Optional
 import os
+from typing import Optional, Any, List, Dict
 import pandas as pd
 from modules.helper import (
     load_llm_json,
@@ -24,16 +25,10 @@ SUPPORTED_ANALYSES = [
     "hotspot",
     "spatial_distance",
 ]
-analysis_patterns = set(SUPPORTED_ANALYSES)
 
-def _validate_metrics(metrics: list[str]) -> None:
-    allowed = {f"site_{k}" for k in concepts["site_keys"]} | \
-              {f"feature_{k}" for k in concepts["feature_keys"]}
-    for m in metrics:
-        if m not in allowed:
-            raise ValueError(
-                f"Invalid metric '{m}'. Allowed metrics are prefixed columns: {sorted(list(allowed))[:10]} …"
-            )
+ALLOWED_FEATURE_KEYS = set(concepts.get("feature_keys", []))
+ALLOWED_SITE_KEYS    = set(concepts.get("site_keys", []))
+analysis_patterns = set(SUPPORTED_ANALYSES)
 
 
 def explain_de(question: str, stdout: str, stderr: str, *, model: Optional[str] = None) -> str:
@@ -76,41 +71,69 @@ def explain_cypher_result(question: str, rows: list[dict], *, model: Optional[st
 
 
 
-def generate_analysis_code(user_input: str, structure: dict, analysis_type: str, model: Optional[str] = None) -> list[dict]:
-    from modules.helper import call_llm_with_prompt, strip_code_fences, render_template
-    from modules.llm import concepts
-
-    outputs = []
-
-    # 1. Parameter extrahieren
-    param_prompt = render_template(f"{analysis_type}_params.jinja2", {
-        "question": user_input,
-        "concepts": concepts,
-        "structure": structure
-    }, folder="params")
-
-    raw = call_llm_with_prompt(f"{analysis_type}_params", user_input, param_prompt, "", model=model)
+def generate_analysis_code(
+    user_input: str,
+    structure: dict,
+    analysis_type: str,
+    model: Optional[str] = None
+) -> List[Dict]:
+    """Return a parameter JSON + executable Python code block for the requested analysis."""
+    # 1 ─ Parameter extraction ───────────────────────────────────────────
+    param_prompt = render_template(
+        "analysis_params.jinja2",
+        {
+            "question":       user_input,
+            "concepts":       concepts,
+            "structure":      structure,
+            "analysis_type":  analysis_type,
+        },
+        folder="system",
+    )
+    raw = call_llm_with_prompt(
+        function_name="analysis_params",
+        question=user_input,
+        prompt=param_prompt,
+        preview=json.dumps(structure, indent=2),
+        model=model,
+    )
 
     try:
-        parameters = json.loads(strip_code_fences(raw))
-    except Exception:
-        parameters = {}
-        print(f"⚠️ Parameter-Parsing fehlgeschlagen für {analysis_type}")
+        params = json.loads(strip_code_fences(raw))
+    except Exception as exc:
+        logger.warning("Parameter parsing failed (%s) → fallback to {}", exc, analysis_type)
+        params = {}
 
-    # 2. Analysecode erzeugen
-    try:
-        code_block = render_template(f"{analysis_type}_code.jinja2", parameters, folder="codes")
-    except Exception as e:
-        code_block = f"Fehler beim Rendern des Codes für {analysis_type}: {e}"
+    # Ensure every required key exists (None if absent)
+    req_keys = {
+        "autocorrelation": ["x_column","y_column","value_column",
+                            "group_column","group_a","group_b","distance_threshold"],
+        "colocation":      ["x_column","y_column",
+                            "group_a","group_b","group_a_type","group_b_type",
+                            "filter_a_column","filter_a_value",
+                            "filter_b_column","filter_b_value",
+                            "distance_threshold"],
+        # … other types omitted for brevity
+    }[analysis_type]
+    for k in req_keys:
+        params.setdefault(k, None)
 
-    # 3. Ergebnis zurückgeben
-    outputs.append({
+    # 2 ─ Code generation ────────────────────────────────────────────────
+    code_block = render_template(
+        "analysis_code.jinja2",
+        {
+            "analysis_type": analysis_type,
+            "params":        params,
+            "concepts":      concepts,
+        },
+        folder="system",
+    )
+
+    return [{
         "analysis_type": analysis_type,
-        "parameters": parameters,
-        "code": code_block
-    })
+        "parameters": params,
+        "code": code_block,
+    }]
 
-    return outputs
 
 
 
@@ -164,142 +187,6 @@ def extract_semantic_structure(question: str, analysis_type: Optional[str] = Non
         return {"analysis_type": []}
 
 
-def extract_relevant_data(question: str, structure: dict | None = None, path: str = "results/analysis_input.json") -> list[dict]:
-    if structure is None:
-        structure = extract_semantic_structure(question)
-    filters = []
-    return_fields = set([
-        "f.FeatureID AS FeatureID",
-        "f.Category AS feature_Category",
-        "f.Location1 AS feature_Location1",
-        "f.X AS feature_X",
-        "f.Y AS feature_Y",
-        "s.SiteID AS SiteID",
-        "s.Category AS site_Category",
-        "s.Location1 AS site_Location1",
-        "s.X AS site_X",
-        "s.Y AS site_Y"
-    ])
-    feature_categories = []
-
-    for node in structure.get("nodes", []):
-        if node.get("type") == "Feature":
-            feature_categories += node.get("categories", [])
-
-        for key, value in node.get("filters", {}).items():
-            filter_expr, alias = _resolve_filter_field(key, value, node.get("type", ""))
-            filters.append(filter_expr)
-            return_fields.add(alias)
-
-    if not feature_categories:
-        raise ValueError("Keine gültigen Feature-Kategorien erkannt.")
-
-    filters.insert(0, f"f.Category IN [{', '.join(repr(c) for c in feature_categories)}]")
-    _validate_metrics(structure.get("metrics", []))
-
-    return_fields |= _extract_metric_fields(structure.get("metrics", []))
-
-    cypher = (
-        f"MATCH (s:Site)-[:HAS_FEATURE]->(f:Feature) "
-        f"WHERE {' AND '.join(filters)} "
-        f"RETURN {', '.join(sorted(return_fields))}"
-    )
-
-    rows = run_cypher(cypher)
-    if rows:
-        preview = rows[0]
-        log_json(logger, "debug", "🧪 Vorschau erster Row (Neo4j)", preview)
-        log_json(logger, "debug", "🧩 Felder", list(preview.keys()))
-    else:
-        logger.warning("⚠️ Cypher gab keine Zeilen zurück")
-    if not rows:
-        raise ValueError("Export returned no data.")
-
-    # --- NaN zu Leerstring nur für Strings ---
-    df = pd.DataFrame(rows)
-    for col in df.columns:
-        if df[col].dtype == object:
-            df[col] = df[col].fillna("")
-
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    df.to_json(path, orient="records", indent=2, force_ascii=False)
-
-    return df.to_dict(orient="records")
-
-
-
-def _resolve_filter_field(key: str, value: str, node_type: str) -> tuple[str, str]:
-    key_l = key.lower()
-    skeys = {k.lower(): k for k in concepts["site_keys"]}
-    fkeys = {k.lower(): k for k in concepts["feature_keys"]}
-
-    # explizite Prefixe
-    if key.startswith("site_"):
-        raw = key[5:].lower()
-        if raw not in skeys:
-            raise ValueError(f"Ungültiger site_-Filter: {key}")
-        col = f"s.{skeys[raw]}"
-        return f"{col} = {repr(value)}", f"{col} AS site_{skeys[raw]}"
-
-    if key.startswith("feature_"):
-        raw = key[8:].lower()
-        if raw not in fkeys:
-            raise ValueError(f"Ungültiger feature_-Filter: {key}")
-        col = f"f.{fkeys[raw]}"
-        return f"{col} = {repr(value)}", f"{col} AS feature_{fkeys[raw]}"
-
-    # unpräfixte Schlüssel – Ambiguität behandeln
-    if key_l in skeys and key_l not in fkeys:
-        col = f"s.{skeys[key_l]}"
-        return f"{col} = {repr(value)}", f"{col} AS site_{skeys[key_l]}"
-    elif key_l in fkeys and key_l not in skeys:
-        col = f"f.{fkeys[key_l]}"
-        return f"{col} = {repr(value)}", f"{col} AS feature_{fkeys[key_l]}"
-    elif key_l in skeys and key_l in fkeys:
-        # → Ambiguität auflösen über Typ
-        if node_type == "Feature":
-            col = f"f.{fkeys[key_l]}"
-            return f"{col} = {repr(value)}", f"{col} AS feature_{fkeys[key_l]}"
-        elif node_type == "Site":
-            col = f"s.{skeys[key_l]}"
-            return f"{col} = {repr(value)}", f"{col} AS site_{skeys[key_l]}"
-        else:
-            raise ValueError(f"Ambiguöser Filter ohne Typauflösung: {key}")
-    else:
-        raise ValueError(f"Unbekannter Filter: {key}")
-
-
-def _extract_metric_fields(metrics: list[str]) -> set[str]:
-    fields = set()
-    skeys = {k.lower(): k for k in concepts["site_keys"]}
-    fkeys = {k.lower(): k for k in concepts["feature_keys"]}
-
-    for metric in metrics:
-        m = metric.strip()
-        m_l = m.lower()
-
-        # explizit prefix-basiert
-        if m.startswith("site_"):
-            raw = m[5:].lower()
-            if raw not in skeys:
-                raise ValueError(f"Ungültige site_-Metrik: {m}")
-            col = skeys[raw]
-            fields.add(f"s.{col} AS site_{col}")
-
-        elif m.startswith("feature_"):
-            raw = m[8:].lower()
-            if raw not in fkeys:
-                raise ValueError(f"Ungültige feature_-Metrik: {m}")
-            col = fkeys[raw]
-            fields.add(f"f.{col} AS feature_{col}")
-
-        else:
-            raise ValueError(f"Metriken müssen `site_` oder `feature_` prefix haben: {m}")
-
-    return fields
-
-
-
 def decide_query_or_python(user_input: str) -> tuple[str, dict, str]:
     # Schritt 1: Typ klassifizieren
         # Schritt 1: Typ klassifizieren
@@ -328,3 +215,60 @@ def decide_query_or_python(user_input: str) -> tuple[str, dict, str]:
             continue
 
     return results
+
+
+
+
+def extract_relevant_data(
+    question: str,
+    structure: dict | None = None,
+    path: str = "results/analysis_input.json",
+    model: Optional[str] = None,
+) -> List[Dict]:
+    """
+    ● Ask the LLM (via Jinja template) for a Cypher WHERE and RETURN clause that match the user question.  
+    ● Run the resulting query against Neo4j (`(s:Site)-[:HAS_FEATURE]->(f:Feature)`).  
+    ● Dump the rows to *analysis_input.json*.
+
+    Returns the list of dictionaries written to disk.
+    """
+    prompt = render_template("extract_relevant_headers.jinja2", {
+            "question": question,
+            "concepts": concepts,
+            "structure": structure or {},  # leer als fallback
+        }, folder="system")
+
+    raw = call_llm_with_prompt("extract_relevant_headers", question, prompt, "", model=model)
+    # ---- 1 Render prompt & call LLM --------------------------------------------------------------
+   
+
+    try:
+        clauses: Dict[str, str] = load_llm_json(raw)
+        where_clause   = clauses.get("where_clause", "TRUE")
+        return_clause  = clauses.get("return_clause")
+        if not return_clause:
+            raise ValueError("return_clause missing")
+    except Exception as exc:                                   # noqa: BLE001
+        logger.warning("LLM output invalid – falling back to minimal query: %s", exc)
+        where_clause  = "TRUE"
+        return_clause = "f.FeatureID AS FeatureID, s.SiteID AS SiteID"
+
+    # ---- 2 Build & run Cypher -------------------------------------------------------------------
+    cypher = (
+        f"MATCH (s:Site)-[:HAS_FEATURE]->(f:Feature) "
+        f"WHERE {where_clause} "
+        f"RETURN {return_clause}"
+    )
+
+    try:
+            rows = run_cypher(cypher)
+            logger.info("Retrieved %d rows via extract_relevant_data", len(rows))
+    except Exception as exc:                                   # noqa: BLE001
+        logger.exception("Cypher execution failed: %s", exc)
+
+    # ---- 3 Persist to disk ----------------------------------------------------------------------
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(rows, fh, indent=2, ensure_ascii=False)
+
+    return rows
