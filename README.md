@@ -70,41 +70,34 @@ Zugriff:
 
 ### 1. Kolokation Ridge-Tumuli ↔ Settlements
 
-> Gibt es eine statistisch signifikante Kolokation von ridge tumulus-sites (`tumulus`, `ridge`) mit settlements (`habitation site`, `hut`, `settlement`)?
-> Wenn ja, weisen diese eine räumliche Autokorrelation auf? Wo liegen Hotspots? Korreliert bei ridge tumuli die Anzahl von Features mit ihrem Kolokationswert?
+> Gibt es eine statistisch signifikante Kolokation von ridge tumulus-sites (category: tumulus; location1: ridge) mit settlements (categories: habitation site; hut; settlement)? Wenn ja, weisen diese eine räumliche Autokorrelation auf? Wo liegen die diesbezüglichen Hotspots? Korreliert bei ridge tumuli die Anzahl von Features pro Site mit ihrem Beitrag zur Kolokation mit habitation sites?
 
-🟡 **Kolokation messbar**, aber **nicht signifikant (p > 0.05)**
-📍 Hotspot: **32°05'E bis 32°37'E**
-📉 Kein signifikanter Zusammenhang mit Feature-Anzahl pro Site
+✅ Es gibt eine messbare Kolokation, diese liegt jedoch unterhalb der statistischen Signifkanzschwelle (p > 0.05). Hotspot ist die Region zwischen 32°05'E und 32°37'E.
 
 ### 2. Autokorrelation: Sesshaftigkeit & Mobilität
 
-> Gibt es signifikante räumliche Autokorrelation bei Sesshaftigkeits- und Mobilitätsindikatoren?
+> Gibt es eine signifikante räumliche Autokorrelation von Sesshaftigkeitsindikatoren (categories: habitation site; hut; settlement) bzw. Mobilitätsindikatoren (shelter; stoneplace; camp site; fireplace; gravel platform)?
 
-✅ **Signifikante Autokorrelation**, vor allem zwischen **31°55'E und 32°05'E**
-🌐 Teilweise nur in spezifischen Geländeabschnitten
+✅ Eine räumliche Autokorrelation beider Datensatzgruppen ist vor allem zwischen 31°55'E und 32°05'E messbar, aber nur in einigen Geländeabschnitten.
 
 
 ### 3. Kolokation: Friedhofsgröße vs. Sesshaftigkeit
 
-> Gibt es signifikante Kolokationen zwischen Sesshaftigkeits-/Mobilitätsindikatoren und Friedhofsgröße bzw. -abständen?
+> Gibt es statistisch signifikante Kolokationen von Sesshaftigkeits-  bzw. Mobilitätsindikatoren mit der Größe (Anzahl von Features) von Friedhöfen (categories: box graves; cleft burial; grave; dome grave; tumulus) und deren Abstand zu einander?
 
-❌ **Mobilität**: Keine signifikante Kolokation
-📉 **Sesshaftigkeit**: **Signifikant negative Kolokation** mit Friedhofsgröße & -abstand
+✅ Es gibt eine signifikante negative Kolokation zwischen der Friedhofsgröße und dem Vorhandensein von Sesshaftigkeitsindikatoren und ebenfalls eine negative Kolokation zwischen dem Abstand zwischen Friedhöfen und dem Vorhandensein von Sesshaftigkeitsindikatoren. Kolokationen beider Wertegruppen mit dem Vorhandensein von Mobilitätsindikatoren ist nicht signifikant.
 
 ### 4. Kolokation: Sesshaftigkeit ↔ Brunnen
 
-> Gibt es eine signifikante Kolokation von Sesshaftigkeitsindikatoren mit Brunnen (`well`)?
+> Gibt es eine statistisch signifikante Kolokation zwischen Sesshaftigkeitsindikatoren (categories: habitation site; hut; settlement) und Brunnen (category: well)?
 
-✅ **Deutlich signifikant**
-💧 Nähe zu Wasser korreliert mit Sesshaftigkeit
+✅ Es gibt eine deutlich signifkante Kolokation zwischen dem Vorhandensein von Sesshaftigkeitsindikatoren und Brunnen.
 
 ### 5. Kolokation: Rock Art ↔ Wohn- oder Mobilitätsindikatoren
 
-> Gibt es Kolokation zwischen Rock Art und Sesshaftigkeits- oder Mobilitätsindikatoren?
+> Gibt es eine statistisch signifikante Kolokation zwischen Mobilitäts- bzw. Sesshaftigkeitsindikatoren (categories: habitation site; hut; settlement) und der Feature-Category "rock art"?
 
-✅ **Sesshaftigkeit**: Signifikant
-❌ **Mobilität**: Keine signifikante Kolokation
+✅ Es gibt eine signifikante Kolokation zwischen dem Vorhandensein von Sesshaftigkeitsindikatoren und der Kategorie "Rock Art". Zum Vorhandensein von Mobilitätsindikatoren ist die Kolokation nicht signifikant.
 
 ## 📦 Technologien
 

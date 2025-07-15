@@ -4,7 +4,7 @@ services:
   # ──────────────────────── Neo4j DB ───────────────────────
   neo4j:
     image: neo4j:5.18
-    container_name: neo4j
+    container_name: neo4jdb
     environment:
       - NEO4J_ACCEPT_LICENSE_AGREEMENT=yes
       - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}
@@ -38,7 +38,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: wadi_streamlit
+    container_name: app
     ports:
       - "8501:8501"
     env_file: .env
@@ -47,7 +47,6 @@ services:
       - ./cache:/app/cache
       - ./data:/app/data
       - ./results:/app/results
-      - ./test:/app/test
       - ./config:/app/config
       - ./templates:/app/templates
     depends_on:

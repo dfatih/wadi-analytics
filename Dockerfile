@@ -29,7 +29,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 3. Dann erst den restlichen App-Code
 COPY app/           app/
 COPY modules/       modules/
-COPY test/          test/
 COPY config/        config/
 COPY templates/     templates/
 COPY .env           . 
