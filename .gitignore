@@ -55,3 +55,4 @@ docker-compose.override.yml
 # ⚙️ Sonstige
 .DS_Store
 Thumbs.db
+example.env

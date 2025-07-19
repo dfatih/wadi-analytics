@@ -20,3 +20,4 @@ pointpats==2.4.0
 mapclassify>=2.6
 fiona==1.8.22
 pyproj==3.4.1
+h3==3.7.7

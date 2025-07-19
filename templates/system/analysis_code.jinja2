@@ -15,7 +15,7 @@ def save_geojson(gdf, filename):
     if out.exists():
         out.unlink()
     gdf.to_file(out, driver="GeoJSON")
-    print(f"📝 GeoJSON written → {out}")
+    print(f"📝 GeoJSON written → {out}")
 
 
 def timestamp(msg):
@@ -29,7 +29,7 @@ def _scalar(x):
 try:
     df = pd.read_json("results/analysis_input.json")
 except Exception as ex:
-    sys.exit(f"❌ Unable to read analysis_input.json → {ex}")
+    sys.exit(f"❌ Unable to read analysis_input.json → {ex}")
 
 
 if "geometry" not in df.columns:
@@ -37,7 +37,7 @@ if "geometry" not in df.columns:
     x_col = {{ params.x_column|tojson }}
     y_col = {{ params.y_column|tojson }}
     if x_col not in df.columns or y_col not in df.columns:
-        sys.exit("❌ No geometry and missing x/y columns in analysis_input.json.")
+        sys.exit("❌ No geometry and missing x/y columns in analysis_input.json.")
     df = gpd.GeoDataFrame(
         df,
         geometry=gpd.points_from_xy(df[x_col], df[y_col]),
@@ -54,7 +54,7 @@ from esda.moran import Moran, Moran_Local
 def _scalar(x):      # ensures numpy 0‑d arrays → float
     return float(np.asarray(x).ravel()[0])
 
-# ---- 1 Build or reuse numeric indicator ---------------------------------
+# ---- 1 Build or reuse numeric indicator ---------------------------------
 if {{ params.value_column is none }} and {{ params.group_a }} and {{ params.group_b }}:
     timestamp("Creating binary indicator from group_a / group_b")
     df["_binary"] = df[{{ params.group_column|tojson }}].apply(
@@ -69,33 +69,33 @@ else:
     value_col  = {{ params.value_column|tojson }}
 
 if value_vec.var() == 0:
-    sys.exit("❌ Selected values have zero variance – cannot compute Moran’s I.")
+    sys.exit("❌ Selected values have zero variance – cannot compute Moran’s I.")
 
-# ---- 2 Spatial weights --------------------------------------------------
+# ---- 2 Spatial weights --------------------------------------------------
 coords   = list(zip(df[{{ params.x_column|tojson }}], df[{{ params.y_column|tojson }}]))
 thresh   = {{ params.distance_threshold or 5000 }}
 w        = DistanceBand(coords, threshold=thresh, binary=True, silence_warnings=True)
 
-# ---- 3 Global Moran -----------------------------------------------------
+# ---- 3 Global Moran -----------------------------------------------------
 mi = Moran(value_vec, w, two_tailed=True)
 timestamp(
-    f"Moran’s I = {_scalar(mi.I):.4f}, "
+    f"Moran’s I = {_scalar(mi.I):.4f}, "
     f"z = {_scalar(mi.z):+.3f}, "
     f"p = {_scalar(mi.p_sim):.4f} (simulated)"
 )
 
-# ---- 4 Local Moran (LISA) ----------------------------------------------
+# ---- 4 Local Moran (LISA) ----------------------------------------------
 lisa = Moran_Local(value_vec, w, permutations=999)
 
 df["I_local"] = lisa.Is
 df["I_z"]     = lisa.z_sim         # Z scores from permutation
 df["I_p"]     = lisa.p_sim         # pseudo p‑values
-df["cluster"] = lisa.q             # 1 HH, 2 LH, 3 LL, 4 HL, 0 not sig
+df["cluster"] = lisa.q             # 1 HH, 2 LH, 3 LL, 4 HL, 0 not sig
 
 # convenient boolean for your map: only cells p ≤ 0.05
 df["sig05"]   = df["I_p"] <= 0.05
 
-# ---- 5 Diagnostics for the report --------------------------------------
+# ---- 5 Diagnostics for the report --------------------------------------
 result = {
     "I":        _scalar(mi.I),
     "z":        _scalar(mi.z),
@@ -107,7 +107,7 @@ result = {
     "pct_islands": round(len(w.islands) / len(df) * 100, 2)
 }
 
-# ---- 6 Persist artefacts -----------------------------------------------
+# ---- 6 Persist artefacts -----------------------------------------------
 Path("results/autocorrelation").mkdir(parents=True, exist_ok=True)
 df.to_file(
     RESULT_DIR / "autocorrelation_result.geojson",
@@ -124,15 +124,16 @@ print(json.dumps(result))          # will show up in Python stdout
 import shapely
 from scipy import stats
 
-# ---- 1 Split the dataframe into the two groups --------------------------
+# ---- 1 Split the dataframe into the two groups --------------------------
 a_mask = df[{{ params.group_a_type|tojson }} + "_Category"].isin({{ params.group_a|tojson }})
 b_mask = df[{{ params.group_b_type|tojson }} + "_Category"].isin({{ params.group_b|tojson }})
 
 df_a = df[a_mask].copy()
 df_b = df[b_mask].copy()
+timestamp(f"Group A rows: {len(df_a)} · Group B rows: {len(df_b)}")
 
 if df_a.empty or df_b.empty:
-    sys.exit("❌ One of the filtered groups is empty – cannot run colocation.")
+    sys.exit("❌ One of the filtered groups is empty – cannot run colocation.")
 
 # Optional attribute filters
 {% if params.filter_a_column and params.filter_a_value is not none %}
@@ -142,7 +143,7 @@ df_a = df_a[df_a[{{ params.filter_a_column|tojson }}] == {{ params.filter_a_valu
 df_b = df_b[df_b[{{ params.filter_b_column|tojson }}] == {{ params.filter_b_value|tojson }}]
 {% endif %}
 
-# ---- 2 Compute pairwise distances + counts within threshold -------------
+# ---- 2 Compute pairwise distances + counts within threshold -------------
 dist_thr = {{ params.distance_threshold or 5000 }}
 df_a["min_dist"] = shapely.distance(df_a.geometry.values[:, None], df_b.geometry.values).min(axis=1)
 df_b["min_dist"] = shapely.distance(df_b.geometry.values[:, None], df_a.geometry.values).min(axis=1)
@@ -150,10 +151,10 @@ df_b["min_dist"] = shapely.distance(df_b.geometry.values[:, None], df_a.geometry
 within_a = (df_a["min_dist"] <= dist_thr).sum()
 within_b = (df_b["min_dist"] <= dist_thr).sum()
 
-timestamp(f"Group A within {dist_thr} m = {within_a}/{len(df_a)}")
-timestamp(f"Group B within {dist_thr} m = {within_b}/{len(df_b)}")
+timestamp(f"Group A within {dist_thr} m = {within_a}/{len(df_a)}")
+timestamp(f"Group B within {dist_thr} m = {within_b}/{len(df_b)}")
 
-# ---- 3 Join–count significance via permutation -------------------------
+# ---- 3 Join–count significance via permutation -------------------------
 def perm_join_count(a_geom, b_geom, threshold, n=999):
     """Return p‑value for observed join‑count under label permutation."""
     obs = ((shapely.distance(a_geom.values[:, None], b_geom.values) <= threshold).any(axis=1)).sum()
@@ -172,7 +173,7 @@ def perm_join_count(a_geom, b_geom, threshold, n=999):
 obs_cnt, p_val = perm_join_count(df_a.geometry, df_b.geometry, dist_thr)
 timestamp(f"Join‑count (observed) = {obs_cnt}, p ≈ {p_val:.4f}")
 
-# ---- 4 Output GeoJSONs ---------------------------------------------------
+# ---- 4 Output GeoJSONs ---------------------------------------------------
 save_geojson(df_a.assign(coloc_target="A"), "colocation_group_a.geojson")
 save_geojson(df_b.assign(coloc_target="B"), "colocation_group_b.geojson")
 
@@ -225,7 +226,7 @@ pts_a  = df.loc[mask_a, [{{ params.x_column|tojson }}, {{ params.y_column|tojson
 pts_b  = df.loc[mask_b, [{{ params.x_column|tojson }}, {{ params.y_column|tojson }}]].values
 
 if pts_a.size == 0 or pts_b.size == 0:
-    sys.exit("❌ One of the groups is empty.")
+    sys.exit("❌ One of the groups is empty.")
 
 dist_mat = cdist(pts_a, pts_b)
 df_dist = pd.DataFrame({
@@ -237,7 +238,7 @@ timestamp("Distance statistics written → distance_stats.csv")
 
 {% else %}
 # ======================================================================== FALLBACK ===========
-sys.exit("❌ Unknown analysis_type '{{ analysis_type }}' – no code generated.")
+sys.exit("❌ Unknown analysis_type '{{ analysis_type }}' – no code generated.")
 {% endif %}
 
-timestamp("✅ Analysis finished.")
+timestamp("✅ Analysis finished.")

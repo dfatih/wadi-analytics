@@ -2,6 +2,57 @@
 
 Dieses System ist das Kernanalysewerkzeug einer Masterarbeit zur semantisch-räumlichen Untersuchung archäologischer Fundstellen im Wadi Abu Dom, Sudan. Es kombiniert moderne Vektor- und Graphdatenbank-Technologien mit Large Language Models (LLMs), um komplexe geoarchäologische Fragestellungen interaktiv zu beantworten.
 
+## ⚙️ Voraussetzungen
+
+### 🔧 System
+
+* **Betriebssystem**: Linux/macOS/Windows mit Docker-Unterstützung
+* **RAM**: mindestens **8 GB empfohlen**
+* **Python**: ≥ **3.10** (nur bei lokaler Installation relevant)
+
+### 🐳 Docker-basierte Nutzung (empfohlen)
+
+| Komponente         | Mindestversion    | Zweck                     |
+| ------------------ | ----------------- | ------------------------- |
+| **Docker Engine**  | `>= 20.10`        | Container-Orchestrierung  |
+| **Docker Compose** | `v2.x` (kein v1!) | Streamlit + Neo4j starten |
+| **Internetzugang** | erforderlich      | Embedding via OpenAI API  |
+
+
+### ⚙️ Lokale Installation (optional, ohne Docker)
+
+Wenn du ohne Docker arbeitest, stelle sicher, dass folgende Tools installiert sind:
+
+| Tool              | Installationshinweis                                       |
+| ----------------- | ---------------------------------------------------------- |
+| **Python ≥ 3.10** | `sudo apt install python3.10`                              |
+| **pip**           | `sudo apt install python3-pip`                             |
+| **GeoPandas**     | `pip install geopandas` *(ggf. mit `gdal` Abhängigkeiten)* |
+| **Neo4j Desktop** | [neo4j.com/download](https://neo4j.com/download/)          |
+
+Außerdem:
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env
+streamlit run app/main.py
+```
+
+---
+
+### 🔑 API & Zugangsdaten
+
+Die Datei `.env` muss folgende Einträge enthalten:
+
+```env
+OPENAI_API_KEY=sk-...
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=deinpasswort
+GPKG_PATH=data/WADI_12_2016.gpkg
+```
+
+
 ## 🚀 Quickstart
 
 ### 1. Setup mit Docker
