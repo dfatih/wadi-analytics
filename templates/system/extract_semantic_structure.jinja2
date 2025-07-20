@@ -38,17 +38,23 @@ that actually stores the attribute.
 Use the lists below to infer the label when the user does not say “feature” /
 “site” explicitly.
 
-*Feature categories* → {{ (concepts.sedentary_indicators
-+ concepts.mobility_indicators
-+ concepts.rock_art_indicators
-+ concepts.grave_categories_feature) | join(', ') }}
-
-*Site categories* → {{ (concepts.grave_categories_site
-+ concepts.water_sources
-+ concepts.get('stone_features', [])) | join(', ') }}
-
-Fallback: look up every term in **`category_map`**  
-{{ concepts.category_map | tojson(indent=2) }}
+IMPORTANT CATEGORY GROUPS
+-------------------------
+Category Map Feature {{concepts.category_map.feature}}
+Category Map Site {{concepts.category_map.site}}
+Category2 Map Feature {{concepts.category2_map.feature}}
+Category2 Map Site {{concepts.category2_map.site}}
+Location1 Map Feature {{concepts.location1_map.feature}}
+Location1 Map Site {{concepts.location1_map.site}}
+Location2 Map Feature {{concepts.location2_map.feature}}
+Location2 Map Site {{concepts.location2_map.site}}
+Sedentary Indicators:  {{ concepts.sedentary_indicators}}
+Mobility Indicators: {{concepts.mobility_indicators}}
+Water Indicators: {{concepts.water_sources}}
+Stone Indicators: {{ concepts.stone_indicators}} 
+Grave Indicators: {{concepts.grave_indicators }}
+Location Terms Feature: {{concepts.location_terms.feature}}
+Location Terms Site: {{concepts.location_terms.site}}
 
 ### 2 Attach filter attributes to the correct label
 

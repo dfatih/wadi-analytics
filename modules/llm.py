@@ -225,48 +225,41 @@ def extract_relevant_data(
     path: str = "results/analysis_input.json",
     model: Optional[str] = None,
 ) -> List[Dict]:
-    """
-    ● Ask the LLM (via Jinja template) for a Cypher WHERE and RETURN clause that match the user question.  
-    ● Run the resulting query against Neo4j (`(s:Site)-[:HAS_FEATURE]->(f:Feature)`).  
-    ● Dump the rows to *analysis_input.json*.
-
-    Returns the list of dictionaries written to disk.
-    """
-    prompt = render_template("extract_relevant_headers.jinja2", {
-            "question": question,
-            "concepts": concepts,
-            "structure": structure or {},  # leer als fallback
-        }, folder="system")
-
-    raw = call_llm_with_prompt("extract_relevant_headers", question, prompt, "", model=model)
-    # ---- 1 Render prompt & call LLM --------------------------------------------------------------
-   
-
-    try:
-        clauses: Dict[str, str] = load_llm_json(raw)
-        where_clause   = clauses.get("where_clause", "TRUE")
-        return_clause  = clauses.get("return_clause")
-        if not return_clause:
-            raise ValueError("return_clause missing")
-    except Exception as exc:                                   # noqa: BLE001
-        logger.warning("LLM output invalid – falling back to minimal query: %s", exc)
-        where_clause  = "TRUE"
-        return_clause = "f.FeatureID AS FeatureID, s.SiteID AS SiteID"
-
-    # ---- 2 Build & run Cypher -------------------------------------------------------------------
-    cypher = (
-        f"MATCH (s:Site)-[:HAS_FEATURE]->(f:Feature) "
-        f"WHERE {where_clause} "
-        f"RETURN {return_clause}"
+    """Get a complete Cypher query from the LLM (JSON key `cypher`),
+    execute it, persist the rows, and return them."""
+    # 1 ─ Render prompt
+    prompt = render_template(
+        "extract_relevant_headers.jinja2",
+        {"question": question, "concepts": concepts, "structure": structure or {}},
+        folder="system",
     )
 
-    try:
-            rows = run_cypher(cypher)
-            logger.info("Retrieved %d rows via extract_relevant_data", len(rows))
-    except Exception as exc:                                   # noqa: BLE001
-        logger.exception("Cypher execution failed: %s", exc)
+    # 2 ─ Call LLM
+    raw = call_llm_with_prompt("extract_relevant_headers", question, prompt, "", model=model)
 
-    # ---- 3 Persist to disk ----------------------------------------------------------------------
+    # 3 ─ Parse JSON  (strip ``` fences if present)
+    try:
+        clauses = load_llm_json(raw)                     # helper already strips fences
+        cypher  = clauses.get("cypher")
+        if not cypher:
+            raise ValueError("key `cypher` missing or empty")
+    except Exception as exc:
+        logger.error("❌ LLM did not return valid JSON with a `cypher` key: %s", exc)
+        raise
+
+    # 4 ─ Sanity check
+    if not cypher.lstrip().lower().startswith("match"):
+        raise ValueError("Cypher string does not start with MATCH:\n" + cypher[:120])
+
+    # 5 ─ Execute
+    try:
+        rows = run_cypher(cypher)
+        logger.info("Retrieved %d rows via extract_relevant_data", len(rows))
+    except Exception as exc:
+        logger.exception("Cypher execution failed: %s", exc)
+        raise
+
+    # 6 ─ Persist
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(rows, fh, indent=2, ensure_ascii=False)

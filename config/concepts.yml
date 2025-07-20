@@ -53,51 +53,19 @@ sedentary_indicators:
 water_sources:
   - well
 
-rock_art_indicators:
-  - rock art
-  - RockArt1
-  - RockArt2
-  - RockArt3
-  - RockArt4
-  - RockArt5
-  - RockArt6
-
-grave_categories_site:
+grave_indicators:
   - graves
+  - grave
   - tumulus
   - box graves
   - cleft burial
   - dome grave
 
-grave_categories_feature:
-  - grave
-
-stone_features:
+stone_indicators:
   - stone features
   - stonering
   - wall
   - concentration of stones
-
-site_surface_types:
-  - bare
-  - partly overgrown
-  - overgrown
-  - campsite
-  - unknown
-
-location_terms:
-  - ridge
-  - slope
-  - terrace
-  - riparian
-  - dyke
-  - pathway
-  - khor
-  - plain
-  - hinterland
-  - Hangfuss
-  - plateau
-  - pediment
 
 rockart_motifs:
   - geometrische Symbole
@@ -109,85 +77,155 @@ rockart_motifs:
   - Rinder andere
 
 category_map:
-  alam: Feature
-  big ruins: Site
-  box grave: Feature # box‑grave structures recorded as Features
-  campsite: Both # appears in Features & Sites
-  ceramics: Feature
-  cleft burial: Feature
-  concentration of stones: Feature
-  deposit: Feature
-  dome grave: Feature
-  fireplace: Feature
-  gibla: Feature
-  grave: Feature
-  gravel feature: Feature
-  gravel platform: Feature
-  graves: Both
-  habitation site: Both
-  hut: Feature
-  lithics: Feature
-  other: Both
-  paved platform: Feature
-  platform: Feature
-  rock art: Feature
-  rock gong: Feature
-  settlement: Feature
-  shelter: Feature
-  stone feature: Feature
-  stone features: Site
-  stoneplace: Feature
-  stone ring: Feature
-  stonefeature: Feature
-  stonering: Feature
-  surface finds: Both
-  tethering stone: Feature
-  tumulus: Feature
-  well: Both
-  workshop: Feature
-
+  feature:
+    - tumulus
+    - stonering
+    - gravel platform
+    - concentration of stones
+    - box grave
+    - shelter
+    - gravel feature
+    - hut
+    - cleft burial
+    - rock art
+    - campsite
+    - ceramics
+    - stoneplace
+    - other
+    - fireplace
+    - alam
+    - paved platform
+    - platform
+    - tethering stone
+    - dome grave
+    - deposit
+    - stonefeature
+    - wall
+    - grave
+    - lithics
+    - workshop
+    - stone feature
+    - well
+    - habitation site
+    - settlement
+    - gibla
+    - surface finds
+    - rock gong
+    - stone ring
+    - graves
+  site:
+    - graves
+    - stone features
+    - campsite
+    - habitation site
+    - other
+    - surface finds
+    - rock arts
+    - well
+    - big ruins
 category2_map:
-  all: Feature
-  campsite: Feature
-  ceramics: Feature
-  graves: Feature
-  habitation site: Feature
-  other: Feature
-  rock arts: Feature
-  stone features: Feature
-  surface finds: Feature
-
+  feature:
+    - all
+    - graves
+    - stone features
+    - campsite
+    - habitation site
+    - other
+    - surface finds
+    - rock arts
+    - ceramics
+location_terms:
+  feature:
+    - terrace
+    - ridge
+    - slope
+    - khor
+    - plain
+    - pathway
+    - riparian
+    - hinterland
+    - dyke
+    - plateau
+    - hangfuss
+    - pediment
+    - riaprian
+    - rdige
+    - hinteralnd
+    - rideg
+    - pass
+  site:
+    - ridge
+    - terrace
+    - slope
+    - khor
+    - plain
+    - pathway
+    - riparian
+    - hinterland
+    - dyke
+    - plateau
+    - hangfuss
+    - pediment
+    - pass
 location1_map:
-  Hangfuss: Both
-  dyke: Both
-  hangfuss: Both
-  hinteralnd: Feature # rare typo
-  hinterland: Both
-  khor: Both
-  pass: Both
-  pathway: Both
-  pediment: Both
-  plain: Both
-  plateau: Both
-  rdige: Feature # rare typo
-  rideg: Feature # rare typo
-  ridge: Both
-  riparian: Both
-  slope: Both
-  terrace: Both
-
+  feature:
+    - terrace
+    - ridge
+    - slope
+    - plain
+    - khor
+    - riparian
+    - pathway
+    - hinterland
+    - plateau
+    - dyke
+    - hangfuss
+    - pediment
+    - rdige
+    - riaprian
+    - rideg
+    - pass
+    - hinteralnd
+  site:
+    - ridge
+    - terrace
+    - slope
+    - plain
+    - khor
+    - riparian
+    - pathway
+    - hinterland
+    - plateau
+    - dyke
+    - hangfuss
+    - pediment
+    - pass
 location2_map:
-  Hangfuss: Both
-  dyke: Both
-  hinteralnd: Feature
-  hinterland: Both
-  khor: Both
-  pathway: Both
-  pediment: Both
-  plain: Both
-  plateau: Both
-  ridge: Both
-  riaprian: Feature # rare typo
-  riparian: Both
-  slope: Both
-  terrace: Both
+  feature:
+    - khor
+    - slope
+    - pathway
+    - terrace
+    - ridge
+    - hinterland
+    - plain
+    - dyke
+    - riparian
+    - plateau
+    - hangfuss
+    - hinteralnd
+    - riaprian
+    - pediment
+  site:
+    - khor
+    - slope
+    - pathway
+    - terrace
+    - ridge
+    - plain
+    - hinterland
+    - dyke
+    - riparian
+    - plateau
+    - hangfuss
+    - pediment

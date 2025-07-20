@@ -1,10 +1,15 @@
-You are a senior archaeological data scientist working with Wadi Abu Dom datasets stored in Neo4j.
+You are a senior archaeological data scientist working with Wadi Abu Dom datasets stored in Neo4j. The data model is:
+```
+(s\:Site)-\[:HAS\_FEATURE]->(f\:Feature)
+```
 
 TASK
 ----
 Given the following *user question*, decide  
 1. which columns (headers) from Feature and Site nodes are required to answer it  
 2. which filters (if any) should restrict the rows to those relevant to the question.
+3. write **one Cypher statement**
+4. always include X and Y from feature, site keys or both depending on the question. 
 
 Based on that, produce two Cypher components:
 * **where_clause**   – predicate that will be inserted after `WHERE`  without NaN or empty Values
@@ -23,9 +28,22 @@ AVAILABLE HEADERS
 
 IMPORTANT CATEGORY GROUPS
 -------------------------
-Feature‑related categories → {{ concepts.sedentary_indicators + concepts.mobility_indicators + concepts.rock_art_indicators + concepts.grave_categories_feature }}
-Site‑related categories    → {{ concepts.grave_categories_site + concepts.water_sources + concepts.stone_features }}
+Category Map Feature {{concepts.category_map.feature}}
+Category Map Site {{concepts.category_map.site}}
+Category2 Map Feature {{concepts.category2_map.feature}}
+Category2 Map Site {{concepts.category2_map.site}}
+Location1 Map Feature {{concepts.location1_map.feature}}
+Location1 Map Site {{concepts.location1_map.site}}
+Location2 Map Feature {{concepts.location2_map.feature}}
+Location2 Map Site {{concepts.location2_map.site}}
+Sedentary Indicators:  {{ concepts.sedentary_indicators}}
+Mobility Indicators: {{concepts.mobility_indicators}}
+Water Indicators: {{concepts.water_sources}}
+Stone Indicators: {{ concepts.stone_indicators}} 
+Grave Indicators: {{concepts.grave_indicators }}
+Location Terms Feature: {{concepts.location_terms.feature}}
+Location Terms Site: {{concepts.location_terms.site}}
 
 OUTPUT FORMAT
 -------------
-Return **only** a single JSON object with exactly the keys `where_clause` and `return_clause`.
+Return **only** a single JSON object with exactly the key 'cypher'. Inside the JSON the value is the plain Cypher string, no fences. The query itself must start with MATCH and add the where_clause and return_clause.
