@@ -39,33 +39,41 @@ site_keys:
   - geometry
 
 mobility_indicators:
-  - shelter
-  - stoneplace
-  - camp site
-  - fireplace
-  - gravel platform
+  feature:
+    - shelter
+    - stoneplace
+    - camp site
+    - fireplace
+    - gravel platform
 
 sedentary_indicators:
-  - habitation site
-  - hut
-  - settlement
+  feature:
+    - habitation site
+    - hut
+    - settlement
+  site:
+    - habitation site
 
 water_sources:
   - well
 
 grave_indicators:
-  - graves
-  - grave
-  - tumulus
-  - box graves
-  - cleft burial
-  - dome grave
+  feature:
+    - tumulus
+    - box graves
+    - cleft burial
+    - grave
+  site:
+    - graves
 
 stone_indicators:
-  - stone features
-  - stonering
-  - wall
-  - concentration of stones
+  feature:
+    - wall
+    - concentration of stones
+    - stone features
+    - stonering
+  site:
+    - stone features
 
 rockart_motifs:
   - geometrische Symbole
@@ -134,6 +142,13 @@ category2_map:
     - surface finds
     - rock arts
     - ceramics
+surface_types:
+  site:
+    - bare
+    - partly overgrown
+    - overgrown
+    - campsite
+    - unknown
 location_terms:
   feature:
     - terrace

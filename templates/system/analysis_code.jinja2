@@ -4,6 +4,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 import geopandas as gpd
+from scipy.spatial.distance import cdist
 
 RESULT_DIR = Path("results") / "visualisierung" / "{{ analysis_type }}"
 RESULT_DIR.mkdir(parents=True, exist_ok=True)
@@ -121,9 +122,6 @@ print(json.dumps(result))          # will show up in Python stdout
 
 {% elif analysis_type == "colocation" %}
 # ======================================================================== COLOCATION ==========
-import shapely
-from scipy import stats
-
 # ---- 1 Split the dataframe into the two groups --------------------------
 a_mask = df[{{ params.group_a_type|tojson }} + "_Category"].isin({{ params.group_a|tojson }})
 b_mask = df[{{ params.group_b_type|tojson }} + "_Category"].isin({{ params.group_b|tojson }})
@@ -144,9 +142,13 @@ df_b = df_b[df_b[{{ params.filter_b_column|tojson }}] == {{ params.filter_b_valu
 {% endif %}
 
 # ---- 2 Compute pairwise distances + counts within threshold -------------
+coords_a = np.array([(pt.x, pt.y) for pt in df_a.geometry])
+coords_b = np.array([(pt.x, pt.y) for pt in df_b.geometry])
 dist_thr = {{ params.distance_threshold or 5000 }}
-df_a["min_dist"] = shapely.distance(df_a.geometry.values[:, None], df_b.geometry.values).min(axis=1)
-df_b["min_dist"] = shapely.distance(df_b.geometry.values[:, None], df_a.geometry.values).min(axis=1)
+
+dist_matrix = cdist(coords_a, coords_b)
+df_a["min_dist"] = dist_matrix.min(axis=1)
+df_b["min_dist"] = dist_matrix.T.min(axis=1)
 
 within_a = (df_a["min_dist"] <= dist_thr).sum()
 within_b = (df_b["min_dist"] <= dist_thr).sum()
@@ -155,23 +157,22 @@ timestamp(f"Group A within {dist_thr} m = {within_a}/{len(df_a)}")
 timestamp(f"Group B within {dist_thr} m = {within_b}/{len(df_b)}")
 
 # ---- 3 Join–count significance via permutation -------------------------
-def perm_join_count(a_geom, b_geom, threshold, n=999):
-    """Return p‑value for observed join‑count under label permutation."""
-    obs = ((shapely.distance(a_geom.values[:, None], b_geom.values) <= threshold).any(axis=1)).sum()
-    combined = pd.concat([a_geom, b_geom])
+def perm_join_count(coords_a, coords_b, threshold, n=999):
+    obs = (cdist(coords_a, coords_b) <= threshold).any(axis=1).sum()
+    combined = np.vstack([coords_a, coords_b])
     counts = []
     rng = np.random.default_rng(42)
     for _ in range(n):
-        shuffled = combined.sample(frac=1, replace=False, random_state=rng).reset_index(drop=True)
-        a_sim = shuffled.iloc[:len(a_geom)]
-        b_sim = shuffled.iloc[len(a_geom):]
-        sim_cnt = ((shapely.distance(a_sim.values[:, None], b_sim.values) <= threshold).any(axis=1)).sum()
+        shuffled = combined[rng.permutation(len(combined))]
+        a_sim = shuffled[:len(coords_a)]
+        b_sim = shuffled[len(coords_a):]
+        sim_cnt = (cdist(a_sim, b_sim) <= threshold).any(axis=1).sum()
         counts.append(sim_cnt)
     p = (np.sum(np.array(counts) >= obs) + 1) / (n + 1)
     return obs, p
 
-obs_cnt, p_val = perm_join_count(df_a.geometry, df_b.geometry, dist_thr)
-timestamp(f"Join‑count (observed) = {obs_cnt}, p ≈ {p_val:.4f}")
+obs_cnt, p_val = perm_join_count(coords_a, coords_b, dist_thr)
+timestamp(f"Join-count (observed) = {obs_cnt}, p ≈ {p_val:.4f}")
 
 # ---- 4 Output GeoJSONs ---------------------------------------------------
 save_geojson(df_a.assign(coloc_target="A"), "colocation_group_a.geojson")
