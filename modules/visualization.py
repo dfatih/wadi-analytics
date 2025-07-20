@@ -259,7 +259,7 @@ def show_kepler_map(folder: str = "results", preselect: str | None = None) -> No
         gdf.rename(columns={"_binary": "sig95"}, inplace=True)
 
     # layer choices
-    layer_choices = ["Scatterplot", "Heatmap", "Hexagon"]
+    layer_choices = ["Scatterplot", "Heatmap"]
     if "I_local" in gdf.columns:
         layer_choices.append("Column")
     if {"source_lon", "source_lat", "target_lon", "target_lat"}.issubset(gdf.columns):

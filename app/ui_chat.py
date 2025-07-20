@@ -91,8 +91,11 @@ def run_chat() -> None:
                         st.code(stdout.strip(), language="text")
 
                     if stderr:
-                        st.subheader("⚠️ Python stderr")
-                        st.code(stderr.strip(), language="text")
+                        if any(err_kw in stderr for err_kw in ["Traceback", "Error", "Exception"]):
+                            st.subheader("⚠️ Python stderr")
+                            st.code(stderr.strip(), language="text")
+                        else:
+                            logger.debug("⚠️ stderr (ignored):\n" + stderr.strip())
 
                     geojson_files = list(Path("results").rglob(f"visualisierung/{analysis_type}/*.geojson"))
                     if geojson_files:

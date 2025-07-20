@@ -1,5 +1,7 @@
+from __future__ import annotations
+from datetime import datetime, timezone
+from pathlib import Path
 import json
-from typing import Optional
 import os
 from typing import Optional, Any, List, Dict
 import pandas as pd
@@ -32,12 +34,10 @@ analysis_patterns = set(SUPPORTED_ANALYSES)
 
 
 def explain_de(question: str, stdout: str, stderr: str, *, model: Optional[str] = None) -> str:
-    if stderr.strip():
+    if any(keyword in stderr for keyword in ["Traceback", "Error", "Exception"]):
         return f"Die Analyse konnte nicht durchgeführt werden."
     if not stdout.strip():
         return "Die Analyse lieferte keine Ausgaben."
-    if "error" in stdout.lower():
-        return "Die Analyse konnte nicht durchgeführt werden."
 
     prompt = render_template("explain_de.jinja2", {
         "question": question,
@@ -71,68 +71,64 @@ def explain_cypher_result(question: str, rows: list[dict], *, model: Optional[st
 
 
 
+# modules/generate_analysis_code.py
+
+
+
 def generate_analysis_code(
     user_input: str,
-    structure: dict,
+    structure: Dict,          # == parsed analysis_input.json (first rows are enough)
     analysis_type: str,
-    model: Optional[str] = None
+    model: Optional[str] = None,
 ) -> List[Dict]:
-    """Return a parameter JSON + executable Python code block for the requested analysis."""
-    # 1 ─ Parameter extraction ───────────────────────────────────────────
-    param_prompt = render_template(
-        "analysis_params.jinja2",
+    """
+    Ask the LLM to write a *complete* Python script that performs the requested
+    analysis.  No parameter/‑code separation; the single template frames the
+    entire prompt.
+
+    Returns a list with one dict so the caller’s downstream JSON logger remains
+    unchanged.
+    """
+
+    # 1 ─ Render the single prompt ───────────────────────────────────────
+    prompt = render_template(
+        "generate_analysis_code.jinja2",
         {
-            "question":       user_input,
-            "concepts":       concepts,
-            "structure":      structure,
-            "analysis_type":  analysis_type,
+            "question":      user_input,
+            "analysis_type": analysis_type,
+            "concepts":      concepts,                # generic background
+            "preview_json":  json.dumps(structure, indent=2)[:1_000],  # guard length
         },
         folder="system",
     )
-    raw = call_llm_with_prompt(
-        function_name="analysis_params",
+
+    # 2 ─ Call LLM ───────────────────────────────────────────────────────
+    raw_answer = call_llm_with_prompt(
+        function_name="generate_analysis_code",
         question=user_input,
-        prompt=param_prompt,
-        preview=json.dumps(structure, indent=2),
+        prompt=prompt,
+        preview=json.dumps(structure, indent=2)[:1_000],
         model=model,
     )
 
+    # 3 ─ Extract code block only ────────────────────────────────────────
     try:
-        params = json.loads(strip_code_fences(raw))
+        code_block = strip_code_fences(raw_answer).strip()
     except Exception as exc:
-        logger.warning("Parameter parsing failed (%s) → fallback to {}", exc, analysis_type)
-        params = {}
+        logger.error("⚠️ Could not strip code fences: %s", exc)
+        code_block = raw_answer
 
-    # Ensure every required key exists (None if absent)
-    req_keys = {
-        "autocorrelation": ["x_column","y_column","value_column",
-                            "group_column","group_a","group_b","distance_threshold"],
-        "colocation":      ["x_column","y_column",
-                            "group_a","group_b","group_a_type","group_b_type",
-                            "filter_a_column","filter_a_value",
-                            "filter_b_column","filter_b_value",
-                            "distance_threshold"],
-        # … other types omitted for brevity
-    }[analysis_type]
-    for k in req_keys:
-        params.setdefault(k, None)
-
-    # 2 ─ Code generation ────────────────────────────────────────────────
-    code_block = render_template(
-        "analysis_code.jinja2",
-        {
-            "analysis_type": analysis_type,
-            "params":        params,
-            "concepts":      concepts,
-        },
-        folder="system",
-    )
-
-    return [{
+    # 4 ─ Provenance record ──────────────────────────────────────────────
+    record = {
+        "timestamp":     datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "question":      user_input,
         "analysis_type": analysis_type,
-        "parameters": params,
-        "code": code_block,
-    }]
+        "llm_prompt":    prompt,
+        "code":          code_block,
+        "preview":       json.dumps(structure, indent=2).splitlines()[:5],
+    }
+    return [record]
+
 
 
 

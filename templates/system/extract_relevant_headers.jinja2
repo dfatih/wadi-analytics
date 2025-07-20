@@ -6,17 +6,18 @@ You are a senior archaeological data scientist working with Wadi Abu Dom dataset
 TASK
 ----
 Given the following *user question*, decide  
-1. which columns (headers) from Feature and Site nodes are required to answer it  
-2. which filters (if any) should restrict the rows to those relevant to the question  
-3. write **one Cypher statement** that retrieves **all necessary data** for the analysis
+1. which columns (headers) from Feature and Site nodes are required to answer it.
+2. Exclude NaN, Null and empty values.
+3. which filters (if any) should restrict the rows to those relevant to the question  
+4. write **one Cypher statement** that retrieves **all necessary data** for the analysis
    - For **autocorrelation**, a single group is sufficient  
    - For **colocation**, return a **combined Feature set** that contains both relevant groups (A and B),  
      but do **not** write a Cross-MATCH (no `f, f2` or `(f)-[:...]->(f2)`)
    - Use a single MATCH clause (e.g. `MATCH (f:Feature)`) and include all relevant rows with filters
-4. always include `X` and `Y` from `Feature` or `Site` depending on which is relevant for the analysis
+5. always include `X` and `Y` from `Feature` or `Site` depending on which is relevant for the analysis
 
 Return your result as two Cypher components:
-* **where_clause** – predicate inserted after `WHERE`, excluding NULL or empty values
+* **where_clause** – predicate inserted after `WHERE`, excluding NULL, NaN and empty values
 * **return_clause** – comma-separated projections using aliases  
                       Format: `f.<col> AS feature_<col>`, `s.<col> AS site_<col>` etc.
 
