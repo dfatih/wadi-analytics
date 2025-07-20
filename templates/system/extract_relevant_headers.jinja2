@@ -5,27 +5,62 @@ You are a senior archaeological data scientist working with Wadi Abu Dom dataset
 
 TASK
 ----
-Given the following *user question*, decide  
+
+Given the following *user question*, decide:
 1. which columns (headers) from Feature and Site nodes are required to answer it.
-2. Exclude NaN, Null and empty values.
+2. Exclude rows with NaN, Null, and empty values in any relevant column.
 3. which filters (if any) should restrict the rows to those relevant to the question  
 4. write **one Cypher statement** that retrieves **all necessary data** for the analysis
-   - For **autocorrelation**, a single group is sufficient  
-   - For **colocation**, return a **combined Feature set** that contains both relevant groups (A and B),  
-     but do **not** write a Cross-MATCH (no `f, f2` or `(f)-[:...]->(f2)`)
-   - Use a single MATCH clause (e.g. `MATCH (f:Feature)`) and include all relevant rows with filters
-5. always include `X` and `Y` from `Feature` or `Site` depending on which is relevant for the analysis
+   - For **autocorrelation**, a single group is sufficient.  
+   - For **colocation**, return a **combined Feature set** that includes both relevant groups (A and B),
+     but do **not** write a Cross-MATCH (no `f, f2` or `(f)-[:...]->(f2)`).
+   - Use a single `MATCH` clause (e.g., `MATCH (f:Feature)`) and include all filters inline.
+5. Always include `X` and `Y` coordinates from either `Feature` or `Site`, depending on which node is spatially relevant.
+6. Ensure the `WHERE` clause filters out any rows with missing coordinates or categories.
+7. When two groups are being compared (e.g. group A vs. group B in colocation), the result must include a **group marker column**.
+   Use a `CASE` expression to add a field like `group_label` or `group_column` with values 'A' or 'B'.
 
 Return your result as two Cypher components:
 * **where_clause** – predicate inserted after `WHERE`, excluding NULL, NaN and empty values
 * **return_clause** – comma-separated projections using aliases  
-                      Format: `f.<col> AS feature_<col>`, `s.<col> AS site_<col>` etc.
+  Format: `f.<col> AS feature_<col>`, `s.<col> AS site_<col>` etc.
+
 
 NOTES
 ----
 For **colocation**:
-- the **group distinction** (A vs B) must be inferable via `Category`, `Location1`, or similar fields
-- Never use `MATCH (f), (f2)` or `MATCH (s)-[:HAS_FEATURE]->(f), (s2)-[:HAS_FEATURE]->(f2)` -> this causes cross joins
+- The **group distinction** (A vs B) must be inferable via `Category`, `Location1`, or similar fields.
+- Never use `MATCH (f), (f2)` or `MATCH (s)-[:HAS_FEATURE]->(f), (s2)-[:HAS_FEATURE]->(f2)` – this causes cross joins.
+- The output must support grouping and spatial comparison between A and B features.
+- If group A and B share the same `MATCH` clause, ensure the categories are kept separate in logic and are distinguishable in the result.
+
+
+RULES
+-----
+1. Always extract all fields used for filtering or grouping (e.g., `Category`, `Location1`, `Condition`).
+2. If the question refers to specific types/ indicators, map these to known category sets.
+   Use definitions from the `concepts.yml`, e.g.:
+   - `mobility_indicators`
+   - `sedentary_indicators`
+   - `grave_categories_feature`
+   - `water_sources`, etc.
+3. Coordinate columns (`X`, `Y`) must always be present and non-null.
+4. Output must allow downstream Python code to compute geometry from `feature_X`, `feature_Y` or `site_X`, `site_Y`.
+5. If both Site and Feature information are relevant, return fields from both nodes, e.g.:
+   ```
+   RETURN f.X AS feature_X, f.Y AS feature_Y, s.X AS site_X, s.Y AS site_Y, s.NoOfFeatures AS site_NoOfFeatures
+   ```
+6. When colocation applies, add a `CASE` expression to assign a `group_column` (e.g. `group_label`) with values `'A'` and `'B'` based on the category.
+   Example:
+   ```
+   CASE
+     WHEN f.Category IN ['habitation site', 'hut', 'settlement'] THEN 'A'
+     WHEN f.Category = 'well' THEN 'B'
+     ELSE NULL
+   END AS group_label
+   ```
+7. 6. When generating a group marker via `CASE`, always include significant headers from the where_clause in the return_clause.
+
 
 
 

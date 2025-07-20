@@ -191,9 +191,6 @@ _TOOLTIPS = {
     "Scatterplot": {
         "html": """
 <b>Category</b>: {feature_Category}<br/>
-<b>I<sub>local</sub></b>: {I_local}<br/>
-<b>p</b>: {I_p}<br/>
-<b>sig95</b>: {sig95}
 """,
         "style": {"color": "white"},
     },
