@@ -40,7 +40,7 @@ def run_chat() -> None:
                 st.error("❌ Keine gültige Analyse erkannt.")
                 return
 
-            for i, (decision_type, structure, analysis_type) in enumerate(decisions, start=1):
+            for i, (decision_type, analysis_type) in enumerate(decisions, start=1):
                 st.markdown(f"---\n\n### 🔍 Analyse {i}: `{analysis_type}`")
                 st.markdown(f"**Entscheidung:** `{decision_type}`")
 
@@ -64,13 +64,13 @@ def run_chat() -> None:
 
                 elif decision_type == "python":
                     try:
-                        extract_relevant_data(user_input, structure=structure)
+                        extract_relevant_data(user_input)
                     except Exception as e:
                         st.error(f"❌ Datenextraktion fehlgeschlagen: {e}")
                         continue
 
                     try:
-                        analysis_outputs = generate_analysis_code(user_input, structure=structure, analysis_type=analysis_type)
+                        analysis_outputs = generate_analysis_code(user_input, analysis_type=analysis_type)
                     except Exception as e:
                         st.error(f"❌ Codegenerierung fehlgeschlagen: {e}")
                         continue

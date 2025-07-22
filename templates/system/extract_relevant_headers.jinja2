@@ -59,14 +59,11 @@ RULES
      ELSE NULL
    END AS group_label
    ```
-7. 6. When generating a group marker via `CASE`, always include significant headers from the where_clause in the return_clause.
+7. When generating a group marker via `CASE`, always include significant headers from the where_clause in the return_clause.
+8. Always include Category from Feature and Site 
 
 
 
-
-EXTRACTED STRUCTURE (may be empty)
-----------------------------------
-{{ structure | tojson(indent=2) }}
 
 AVAILABLE HEADERS
 -----------------

@@ -1,16 +1,3 @@
-"""
-modules/visualization.py
-────────────────────────
-Streamlit ↔ pydeck helper for interactive visualisation of GeoJSON outputs
-from Fatih’s archaeological RAG pipeline.
-
-v0.5  (2025‑07‑17)
-• Hexagon option now computes H3 bins on the CPU → tooltip shows point count
-  & dominant category accurately.
-• Column option lets the user choose height attribute (default = I_local).
-• FutureWarnings from GeoPandas/pandas eliminated.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,13 +1,6 @@
-analysis_patterns:
-  autocorrelation:
-    keywords: ["autokorrelation", "räumlich korreliert", "cluster"]
-  colocation:
-    keywords: ["kolokation", "überlappung", "in der Nähe von"]
-  correlation:
-    keywords: ["korrelation", "zusammenhang"]
-  ripley_k:
-    keywords: ["ripley", "punktmuster", "clustering"]
-  hotspot:
-    keywords: ["hotspot", "cluster", "lokale autocorrelation"]
-  spatial_distance:
-    keywords: ["distanz", "abstand", "entfernung"]
+- autocorrelation
+- colocation
+- correlation
+- ripley_k
+- hotspot
+- spatial_distance

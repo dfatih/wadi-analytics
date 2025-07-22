@@ -75,7 +75,6 @@ def call_llm_with_prompt(
     function_name: str,
     question: str,
     prompt: str,
-    preview: str,
     result_data=None,
     temperature: float = 0.2,
     model: Optional[str] = None,
@@ -83,7 +82,6 @@ def call_llm_with_prompt(
     messages = [
         {"role": "system", "content": prompt},
         {"role": "user", "content": f"Frage: {question}"},
-        {"role": "assistant", "content": preview},
     ]
 
     response = CLIENT_NAME.chat.completions.create(
