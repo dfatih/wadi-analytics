@@ -1,0 +1,13 @@
+Neo4j. The data model is:
+```
+(s\:Site)-\[:HAS\_FEATURE]->(f\:Feature)
+(f\:Feature)-\[:HAS\_ROCKART]->(m\:RockArtMotif)
+(a\:Site)-\[:CLOSE\_TO\_SITE {distance\_m}]-(b\:Site)
+(a\:Feature)-\[:CLOSE\_TO\_FEATURE {distance\_m}]-(b\:Feature)
+(f\:Feature)-\[:NEAR {distance\_m}]-(s\:Site)
+```
+Each node has a `location` property (Neo4j point, WGS-84) derived from `Lat`/`Lon`.
+Use `point.distance(a.location, b.location)` for arbitrary distance calculations.
+Use `CLOSE_TO_SITE` / `CLOSE_TO_FEATURE` relationships (pre-computed, < 500 m) for same-type proximity.
+Use `NEAR` relationships (pre-computed, < 500 m) for cross-type proximity (Feature near a non-parent Site).
+IMPORTANT: `CLOSE_TO_*` and `NEAR` relationships are stored unidirectionally. Always use **undirected** patterns (`-[:CLOSE_TO_SITE]-` without `>`) to find all neighbors.

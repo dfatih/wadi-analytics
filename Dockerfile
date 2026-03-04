@@ -16,7 +16,7 @@ RUN apt-get update && apt-get install -y \
     libproj-dev \
     libgeos-dev \
     libspatialindex-dev \
-    libatlas-base-dev \
+    liblapack-dev \
     libffi-dev \
     libgl1 \
     && rm -rf /var/lib/apt/lists/*
@@ -31,11 +31,17 @@ COPY app/           app/
 COPY modules/       modules/
 COPY config/        config/
 COPY templates/     templates/
-COPY .env           . 
+COPY .streamlit/    .streamlit/
+# .env is NOT copied into the image – use env_file: in docker-compose.yml
 
 # 6. GDAL- und PROJ-Umgebungsvariablen
 ENV GDAL_DATA=/usr/share/gdal
 ENV PROJ_LIB=/usr/share/proj
 
 # 4. Entrypoint (HF-Model download zur Laufzeit o. via volume)
-CMD ["streamlit", "run", "app/main.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "app/main.py", \
+     "--server.port=8501", \
+     "--server.address=0.0.0.0", \
+     "--server.fileWatcherType=none", \
+     "--server.headless=true", \
+     "--browser.gatherUsageStats=false"]

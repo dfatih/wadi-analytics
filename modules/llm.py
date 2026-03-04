@@ -1,257 +1,367 @@
+"""LLM-Agent fuer archaeologische Analysen via OpenAI Tool-Use.
+
+Stellt einen einzelnen Einstiegspunkt run_agent() bereit, der eine Nutzerfrage
+im agentischen Loop beantwortet. Das LLM entscheidet autonom, welche Tools
+(Cypher-Abfragen, Python-Analysen) aufgerufen werden.
+"""
 from __future__ import annotations
-from datetime import datetime, timezone
-from pathlib import Path
+
 import json
+import math
 import os
-from typing import Optional, Any, List, Dict
-import pandas as pd
+import re
+from pathlib import Path
+from typing import Optional
+
 from modules.helper import (
-    load_llm_json,
-    load_prompt,
-    call_llm_with_prompt,
-    strip_code_fences,
-    render_template,
+    AgentResult,
+    ToolCallRecord,
+    call_llm_with_tools,
     load_yaml,
-    sanitize_cypher_code,
-    run_cypher
+    render_template,
+    run_cypher,
+    run_python_code,
+    strip_code_fences,
 )
-from modules.logger import get_logger, log_json
+from modules.disambiguator import (
+    resolve_terms,
+    format_resolved_terms,
+    validate_cypher_values,
+    auto_correct_cypher,
+    fix_cypher_syntax,
+)
+from modules.logger import get_logger
+
 logger = get_logger("debug")
 
 concepts = load_yaml("concepts.yml")
-analysis_patterns = load_yaml("analysis_patterns.yml")
 
 
-ALLOWED_FEATURE_KEYS = set(concepts.get("feature_keys", []))
-ALLOWED_SITE_KEYS    = set(concepts.get("site_keys", []))
-ANALYSIS_PATTERNS = set(analysis_patterns)
-
-
-def explain_de(question: str, stdout: str, stderr: str, *, model: Optional[str] = None) -> str:
-    if any(keyword in stderr for keyword in ["Traceback", "Error", "Exception"]):
-        return f"Die Analyse konnte nicht durchgeführt werden."
-    if not stdout.strip():
-        return "Die Analyse lieferte keine Ausgaben."
-
-    prompt = render_template("explain_de.jinja2", {
-        "question": question,
-        "preview": stdout.strip()
-    }, folder="system")
-    return call_llm_with_prompt(
-        function_name="explain_de",
-        question=question,
-        prompt=prompt,
-        model=model
-    )
-
-
-def explain_cypher_result(question: str, rows: list[dict], *, model: Optional[str] = None) -> str:
-    preview = json.dumps(rows[:5], indent=2, ensure_ascii=False)
-
-    prompt = render_template("explain_cypher_result.jinja2", {
-        "question": question,
-        "concepts": concepts,
-        "preview": preview
-    }, folder="system")
-
-    return call_llm_with_prompt(
-        function_name="explain_cypher_result",
-        question=question,
-        prompt=prompt,
-        model=model
-    )
-
-
-
-
-# modules/generate_analysis_code.py
-
-
-
-def generate_analysis_code(
-    user_input: str,         # == parsed analysis_input.json (first rows are enough)
-    analysis_type: str,
-    model: Optional[str] = None,
-) -> List[Dict]:
-    """
-    Ask the LLM to write a *complete* Python script that performs the requested
-    analysis.  No parameter/‑code separation; the single template frames the
-    entire prompt.
-
-    Returns a list with one dict so the caller’s downstream JSON logger remains
-    unchanged.
-    """
-
-    # 1 ─ Render the single prompt ───────────────────────────────────────
-    prompt = render_template(
-        "generate_analysis_code.jinja2",
-        {
-            "question":      user_input,
-            "analysis_type": analysis_type,
-            "concepts":      concepts,
+# ---------------------------------------------------------------------------
+# Tool-Schemata fuer OpenAI Function Calling
+# ---------------------------------------------------------------------------
+TOOL_SCHEMAS: list[dict] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_cypher_query",
+            "description": (
+                "Execute a Cypher query against the Neo4j graph database. "
+                "Returns query results as JSON. Data is automatically saved to a file "
+                "for use in subsequent spatial analysis. If the query fails, "
+                "the error message is returned so you can fix and retry."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "A valid Cypher query starting with MATCH",
+                    },
+                },
+                "required": ["query"],
+            },
         },
-        folder="system",
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_spatial_analysis",
+            "description": (
+                "Execute a Python spatial analysis script. The script should read "
+                "data from the JSON file saved by a previous run_cypher_query call, "
+                "perform the spatial analysis, and save results to "
+                "results/visualisierung/{analysis_type}/. "
+                "Returns stdout, stderr, and summary statistics."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Complete Python script to execute",
+                    },
+                    "analysis_type": {
+                        "type": "string",
+                        "description": "Type of spatial analysis",
+                        "enum": [
+                            "autocorrelation", "colocation", "correlation",
+                            "ripley_k", "hotspot", "spatial_distance",
+                        ],
+                    },
+                },
+                "required": ["code", "analysis_type"],
+            },
+        },
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# Cypher-Bereinigung (wiederverwendet aus alter llm.py)
+# ---------------------------------------------------------------------------
+def _sanitize_cypher(cypher: str) -> str:
+    """Bereinigt LLM-generiertes Cypher von gaengigen Artefakten."""
+    cypher = re.sub(r'\\\s*\n', ' ', cypher)
+    cypher = re.sub(r'\n{3,}', '\n\n', cypher)
+    return cypher.strip()
+
+
+# ---------------------------------------------------------------------------
+# Tool-Handler
+# ---------------------------------------------------------------------------
+def _handle_tool_call(
+    tool_name: str, arguments: dict, context: dict,
+) -> tuple[str, ToolCallRecord]:
+    """Verarbeitet einen Tool-Aufruf und gibt (result_text, record) zurueck."""
+    if tool_name == "run_cypher_query":
+        return _handle_cypher_query(arguments, context)
+    elif tool_name == "run_spatial_analysis":
+        return _handle_spatial_analysis(arguments, context)
+    else:
+        msg = f"Unbekanntes Tool: {tool_name}"
+        record = ToolCallRecord(
+            tool_name=tool_name, arguments=arguments,
+            result_text=msg, success=False,
+        )
+        return msg, record
+
+
+def _handle_cypher_query(
+    arguments: dict, context: dict,
+) -> tuple[str, ToolCallRecord]:
+    """Fuehrt eine Cypher-Abfrage aus: validiert, korrigiert, fuehrt aus, speichert."""
+    query = arguments.get("query", "")
+    data_path = context.get("data_path", "results/analysis_input.json")
+    record = ToolCallRecord(
+        tool_name="run_cypher_query",
+        arguments=arguments,
+        result_text="",
+        cypher_query=query,
     )
 
-    # 2 ─ Call LLM ───────────────────────────────────────────────────────
-    raw_answer = call_llm_with_prompt(
-        function_name="generate_analysis_code",
-        question=user_input,
-        prompt=prompt,
-        model=model,
-    )
-
-    # 3 ─ Extract code block only ────────────────────────────────────────
     try:
-        code_block = strip_code_fences(raw_answer).strip()
+        # Bereinigen
+        query = _sanitize_cypher(query)
+        query, syntax_fixes = fix_cypher_syntax(query)
+        if syntax_fixes:
+            logger.info("Cypher-Syntax korrigiert: %s", syntax_fixes)
+
+        # Werte validieren und auto-korrigieren
+        warnings = validate_cypher_values(query)
+        if warnings:
+            logger.warning("Cypher-Validierungswarnungen: %s", warnings)
+            query, corrections = auto_correct_cypher(query)
+            if corrections:
+                logger.info("Automatisch korrigiert: %s", corrections)
+
+        record.cypher_query = query
+
+        # Ausfuehren
+        rows = run_cypher(query)
+        logger.info("Cypher-Abfrage: %d Zeilen zurueckgegeben", len(rows))
+
+        # Daten speichern
+        parent_dir = os.path.dirname(data_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+        with open(data_path, "w", encoding="utf-8") as fh:
+            json.dump(rows, fh, indent=2, ensure_ascii=False)
+
+        # Antwort fuer LLM zusammenbauen
+        preview = json.dumps(rows[:10], indent=2, ensure_ascii=False)
+        columns = list(rows[0].keys()) if rows else []
+        result_text = (
+            f"Query returned {len(rows)} rows. "
+            f"Data saved to: {data_path}\n"
+            f"Columns: {columns}\n\n"
+            f"Preview (first 10 rows):\n{preview}"
+        )
+
+        record.result_text = result_text
+        record.stdout = preview
+        record.success = True
+        return result_text, record
+
     except Exception as exc:
-        logger.error("⚠️ Could not strip code fences: %s", exc)
-        code_block = raw_answer
-
-    # 4 ─ Provenance record ──────────────────────────────────────────────
-    record = {
-        "timestamp":     datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "question":      user_input,
-        "analysis_type": analysis_type,
-        "llm_prompt":    prompt,
-        "code":          code_block,
-    }
-    return [record]
+        error_msg = f"Cypher-Fehler: {exc}"
+        logger.error("Cypher-Ausfuehrung fehlgeschlagen: %s", exc)
+        record.result_text = error_msg
+        record.stderr = str(exc)
+        record.success = False
+        return error_msg, record
 
 
+def _handle_spatial_analysis(
+    arguments: dict, context: dict,
+) -> tuple[str, ToolCallRecord]:
+    """Fuehrt ein Python-Analyse-Skript aus und sammelt Ergebnisse."""
+    code = arguments.get("code", "")
+    analysis_type = arguments.get("analysis_type", "unknown")
+    started_at = context.get("step_started", 0.0)
 
-
-
-def generate_cypher(question: str, *, model: Optional[str] = None) -> str:
-    """
-    Erzeugt einen Cypher-Query durch das LLM basierend auf einem systemweiten Template.
-    Verwendet das Template: templates/generate_cypher.jinja2
-    """
-
-    # 1. Systemprompt aus Template generieren
-    prompt = render_template("generate_cypher.jinja2", {
-        "question": question,
-        "concepts": concepts,
-    }, folder="system")
-
-    # 2. LLM aufrufen
-    raw_code = call_llm_with_prompt(
-        function_name="generate_cypher",
-        question=question,
-        prompt=prompt,
-        model=model,
+    record = ToolCallRecord(
+        tool_name="run_spatial_analysis",
+        arguments={"analysis_type": analysis_type},
+        result_text="",
+        python_code=code,
     )
 
-    # 3. Code bereinigen (z. B. ```cypher entfernen)
-    return sanitize_cypher_code(raw_code)
-
-
-
-    
-def extract_semantic_structure(question: str, analysis_type: Optional[str] = None, model: Optional[str] = None) -> dict:
-    prompt = render_template("extract_semantic_structure.jinja2", {
-        "question": question,
-        "concepts": concepts,
-        "analysis_type": analysis_type or "",  # leer als fallback
-    }, folder="system")
-
-    raw = call_llm_with_prompt("extract_semantic_structure", question, prompt, model=model)
-
     try:
-        result = load_llm_json(raw)
-        if not isinstance(result, dict):
-            return {"analysis_type": []}
+        stdout, stderr = run_python_code(code)
+    except Exception as exc:
+        error_msg = f"Python-Ausfuehrung fehlgeschlagen: {exc}"
+        logger.error("Python-Ausfuehrung fehlgeschlagen: %s", exc)
+        record.result_text = error_msg
+        record.stderr = str(exc)
+        record.success = False
+        return error_msg, record
 
-        if "analysis_types" not in result and "analysis_type" in result:
-            result["analysis_types"] = (
-                [result["analysis_type"]] if isinstance(result["analysis_type"], str) else result["analysis_type"]
-            )
-        return result
+    record.stdout = stdout
+    record.stderr = stderr
+
+    # Fehler-Erkennung
+    has_error = stderr and any(
+        kw in stderr for kw in ["Traceback", "Error", "Exception"]
+    )
+
+    # GeoJSON suchen
+    geojson_dir = Path(f"results/visualisierung/{analysis_type}")
+    geojson_files = list(geojson_dir.glob("*.geojson")) if geojson_dir.exists() else []
+    if geojson_files:
+        latest = max(geojson_files, key=lambda f: f.stat().st_mtime)
+        record.geojson_path = str(latest)
+
+    # Summary-JSON laden
+    summary = _load_summary_json(analysis_type, written_after=started_at)
+    record.summary_json = summary
+
+    # Statistische Validierung
+    is_valid, val_warnings = _validate_summary_json(summary)
+    if not is_valid:
+        logger.warning("Statistische Validierung fehlgeschlagen: %s", val_warnings)
+        has_error = True
+
+    record.success = not has_error
+
+    # Antwort fuer LLM zusammenbauen
+    parts = []
+    if stdout and stdout.strip():
+        parts.append(f"stdout:\n{stdout.strip()}")
+    if has_error and stderr:
+        parts.append(f"stderr:\n{stderr.strip()}")
+    if val_warnings:
+        parts.append(f"Validierungswarnungen: {'; '.join(val_warnings)}")
+    if summary:
+        parts.append(f"Summary JSON: {json.dumps(summary, indent=2, ensure_ascii=False)}")
+
+    result_text = "\n\n".join(parts) if parts else "Analyse abgeschlossen (keine Ausgabe)."
+    record.result_text = result_text
+    return result_text, record
+
+
+# ---------------------------------------------------------------------------
+# Hilfsfunktionen
+# ---------------------------------------------------------------------------
+def _load_summary_json(analysis_type: str, written_after: float = 0.0) -> dict | None:
+    """Laedt das Summary-JSON eines Python-Analyseschritts."""
+    result_dir = Path("results") / "visualisierung" / analysis_type
+    if not result_dir.exists():
+        return None
+    json_files = [
+        f for f in result_dir.glob("*.json")
+        if f.stat().st_mtime > written_after
+    ]
+    if not json_files:
+        return None
+    latest = max(json_files, key=lambda f: f.stat().st_mtime)
+    try:
+        with open(latest, encoding="utf-8") as fh:
+            return json.load(fh)
     except Exception:
-        return {"analysis_type": []}
+        return None
 
 
-def decide_query_or_python(user_input: str) -> tuple[str, dict, str]:
-    # Schritt 1: Typ klassifizieren
-        # Schritt 1: Typ klassifizieren
-    prompt = render_template("classify_analysis_type.jinja2", {
-        "question": user_input,
-        "analysis_patterns": analysis_patterns
+def _validate_summary_json(summary: dict | None) -> tuple[bool, list[str]]:
+    """Validiert Summary-JSON auf NaN-Werte in Moran's I und p-Werten."""
+    if summary is None:
+        return True, []
+    warnings: list[str] = []
+
+    def _check(d: dict, prefix: str = "") -> None:
+        for key, val in d.items():
+            if isinstance(val, dict):
+                _check(val, prefix=f"[{key}] ")
+                continue
+            k = key.lower()
+            if k in ("moran_i", "i") and isinstance(val, float) and math.isnan(val):
+                warnings.append(f"{prefix}Moran's I ist NaN -- konstante Variable")
+            if k in ("p_value", "p_sim") and isinstance(val, float) and math.isnan(val):
+                warnings.append(f"{prefix}p-Wert ist NaN")
+
+    _check(summary)
+    return len(warnings) == 0, warnings
+
+
+# ---------------------------------------------------------------------------
+# Haupteinstiegspunkt
+# ---------------------------------------------------------------------------
+def run_agent(
+    question: str,
+    model: Optional[str] = None,
+    data_path: str = "results/analysis_input.json",
+    cell_size: int = 2000,
+) -> AgentResult:
+    """Beantwortet eine archaeologische Forschungsfrage im agentischen Loop.
+
+    Das LLM erhaelt Tools (run_cypher_query, run_spatial_analysis) und
+    entscheidet autonom, welche Schritte noetig sind.
+
+    Args:
+        question: Die Nutzerfrage.
+        model: Optionaler Modellname (Default aus Registry).
+        data_path: Pfad fuer zwischengespeicherte Cypher-Ergebnisse.
+        cell_size: Grid-Zellgroesse in Metern fuer raeumliche Analysen.
+
+    Returns:
+        AgentResult mit Antworttext, Tool-Aufrufen und Metriken.
+    """
+    import time
+
+    # Begriffe vorab aufloesen (deterministisch, kein LLM-Aufruf)
+    resolved = resolve_terms(question)
+    resolved_text = format_resolved_terms(resolved)
+
+    # System-Prompt aus Template rendern
+    system_prompt = render_template("agent_system.jinja2", {
+        "concepts": concepts,
+        "resolved_terms": resolved_text,
+        "cell_size": cell_size,
     }, folder="system")
 
-    try:
-        raw = call_llm_with_prompt("classify_analysis_type", user_input, prompt)
-        analysis_types = json.loads(strip_code_fences(raw))["analysis_types"]
-        analysis_types = [a.strip().lower() for a in analysis_types]
-        logger.info(f"🧠 Analyse-Typen erkannt: {analysis_types}")
-    except Exception as e:
-        logger.error(f"❌ Fehler bei der Typ-Klassifizierung: {e}")
-        return [("cypher", "Cypher-Query")]
-    
-    if not analysis_types:
-        logger.warning("⚠️ Keine Analyse erkannt – wechsle zu Cypher.")
-        return [("cypher", "Cypher-Query")]
+    # User-Nachricht mit aufgeloesten Begriffen anreichern
+    user_message = question
+    if resolved_text:
+        user_message = f"{question}\n\n{resolved_text}"
 
-    results = []
-    for analysis_type in analysis_types:
-        try:
-            decision = "python" if analysis_type in ANALYSIS_PATTERNS else "cypher"
-            results.append((decision, analysis_type))
-            # logger.debug(f"📦 Struktur für {results} + {decision}:\n{json.dumps(results, indent=2)}")
-        except Exception as e:
-            logger.error(f"❌ Fehler bei Extraktion für Typ '{analysis_type}': {e}")
-            continue
+    # Kontext fuer Tool-Handler
+    context = {
+        "data_path": data_path,
+        "step_started": time.time(),
+    }
 
-    if not results:
-        logger.warning("⚠️ Extraktion für alle Analyse-Typen fehlgeschlagen – wechsle zu Cypher.")
-        return [("cypher", "Cypher-Query")]
-    return results
+    def tool_handler(name: str, args: dict) -> tuple[str, ToolCallRecord]:
+        context["step_started"] = time.time()
+        return _handle_tool_call(name, args, context)
 
-
-
-
-def extract_relevant_data(
-    question: str,
-    path: str = "results/analysis_input.json",
-    model: Optional[str] = None,
-) -> List[Dict]:
-    """Get a complete Cypher query from the LLM (JSON key `cypher`),
-    execute it, persist the rows, and return them."""
-    # 1 ─ Render prompt
-    prompt = render_template(
-        "extract_relevant_headers.jinja2",
-        {"question": question, "concepts": concepts},
-        folder="system",
+    # Agenten-Loop ausfuehren
+    result = call_llm_with_tools(
+        system_prompt=system_prompt,
+        user_message=user_message,
+        tools=TOOL_SCHEMAS,
+        tool_handler=tool_handler,
+        model=model,
+        max_iterations=10,
     )
 
-    # 2 ─ Call LLM
-    raw = call_llm_with_prompt("extract_relevant_headers", question, prompt, model=model)
-
-    # 3 ─ Parse JSON  (strip ``` fences if present)
-    try:
-        clauses = load_llm_json(raw)                     # helper already strips fences
-        cypher  = clauses.get("cypher")
-        if not cypher:
-            raise ValueError("key `cypher` missing or empty")
-    except Exception as exc:
-        logger.error("❌ LLM did not return valid JSON with a `cypher` key: %s", exc)
-        raise
-
-    # 4 ─ Sanity check
-    if not cypher.lstrip().lower().startswith("match"):
-        raise ValueError("Cypher string does not start with MATCH:\n" + cypher[:120])
-
-    # 5 ─ Execute
-    try:
-        rows = run_cypher(cypher)
-        logger.info("Retrieved %d rows via extract_relevant_data", len(rows))
-    except Exception as exc:
-        logger.exception("Cypher execution failed: %s", exc)
-        raise
-
-    # 6 ─ Persist
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(rows, fh, indent=2, ensure_ascii=False)
-
-    return rows
+    return result

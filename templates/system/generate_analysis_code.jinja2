@@ -1,61 +1,18 @@
-You are an expert Python spatial‑statistics engineer.
+You are an expert Python spatial-statistics engineer.
 
 ## Context
 * **Analysis type:** {{ analysis_type }}
 * **First rows of analysis_input.json:**
 {{ preview_json }}
+{% if resolved_terms %}
+* **Resolved term mappings:**
+{{ resolved_terms }}
+{% endif %}
 
-## Task
-Write a single, fully executable Python 3.11 script that answers the user’s question using the "{{ analysis_type }}" method.
-1. Loads the file `results/analysis_input.json`, which contains a flat list of dictionaries (JSON array) and check if the file is empty.  
-   Example structure:
-   ```json
-   [
-     { "feature_X": 392000.0, "feature_Y": 2037000.0, "feature_Category": "hut" },
-     { "feature_X": 391800.0, "feature_Y": 2036500.0, "feature_Category": "tumulus" }
-   ]
-   ```
-2. Converts the data into a Pandas or GeoPandas DataFrame using `x_column` and `y_column` from the data as spatial coordinates.
-3. Performs the spatial analysis.
-4. Saves all analysis results into the folder `results/visualisierung/{{ analysis_type }}/`:
-   - Save spatial results as a `.geojson` file using `GeoDataFrame.to_file(..., driver="GeoJSON")`
-   - Save summary statistics (e.g., Moran's I, p-value, number of islands) as a `.json` file using `json.dump(...)`
-   - Use `Path(...).mkdir(parents=True, exist_ok=True)` to ensure the output directory exists
-5. Prints a short human-readable interpretation of the result to STDOUT.
-   - Include the number of input records and threshold
-   - Print all numeric outputs used in the final decision
-   - Print short human-readable interpretation of the result answering the question.
-
-## Rules
-1. Use only open-source libraries already present in the environment:  
-   `pandas`, `geopandas`, `numpy`, `scipy`, `libpysal`, `matplotlib`.
-2. If spatial weights (e.g., `DistanceBand`) are used:
-   - Do **not** use `spatial_autocorrelation` – that method does not exist on DistanceBand.
-   - Exclude isolated points using `weights.islands`.
-   - Remove these rows from the GeoDataFrame using `.drop(index=weights.islands)`.
-   - Then re-calculate the spatial weights using `DistanceBand.from_dataframe(...)` on the filtered DataFrame.
-   - Do **not** use `.subset(...)` – that method does not exist on `DistanceBand`.
-   - Log the number of excluded points (`n_islands`), their percentage (`pct_islands`), and their IDs.
-   - If all points are isolated exit cleanly and mention it in the results.
-   - Use crs="EPSG:32636" for the GeoDataFrame
-3. If the analysis requires a binary indicator (e.g., group A vs. B), create it from `feature_Category`.
-4. Catch and log all exceptions clearly. Do not crash.
-5. All distances are interpreted in metres. Default threshold = 5000.
-6. ignore NaN, Null and empty values.
-7. Before saving JSON files with `json.dump(...)`, ensure all values are Python-native types. Convert NumPy types (e.g., `np.int64`, `np.float64`) to `int` or `float`.
-
-
-
-
-
-
-
-
-
-### Output format
-
-Return **nothing but** the complete Python script,  
-wrapped in a single Markdown code fence:
+## Response Format
+Your response MUST contain ONLY a single Python code block -- nothing else.
+No markdown text, explanations, questions, or Unicode special characters (use ASCII only).
+If terms seem incomplete, use `resolved_terms` and `preview_json` as-is. Proceed with best effort.
 
 ```python
 # >>> BEGIN SCRIPT
@@ -63,3 +20,142 @@ wrapped in a single Markdown code fence:
 # <<< END SCRIPT
 ```
 
+## Code Constraints
+- Maximum **150 lines** (excluding comments). Flat top-level structure, no `main()` wrapper.
+- Max nesting depth: 2. At most ONE `try/except` block. Prefer early-return with `exit()`.
+
+## Steps
+1. Load `{{ input_path | default('results/analysis_input.json') }}` (flat JSON array). If empty/missing, print error and `exit()`.
+2. **Data validation** (immediately after loading):
+   ```python
+   df = pd.DataFrame(data)
+   cols = list(df.columns)
+   print(f"Columns: {cols}")
+   print(f"Records: {len(df)}")
+   ```
+   Column names follow a fixed convention with **lowercase** prefixes: `feature_Category`, `feature_X`, `site_SiteID`, `group_label`.
+   Validate presence before access. If critical columns are missing, print available vs. expected and `exit()`.
+3. Convert to GeoDataFrame using coordinate columns (`feature_X`/`feature_Y` or `site_X`/`site_Y`), crs=`EPSG:32636`.
+4. Perform the spatial analysis (see methodology below).
+5. Save results into `results/visualisierung/{{ analysis_type }}/`:
+   - GeoJSON via `GeoDataFrame.to_file(..., driver="GeoJSON")`.
+     After `groupby()` aggregation, convert back: `gpd.GeoDataFrame(df, geometry=gpd.points_from_xy(...), crs='EPSG:32636')`.
+   - Summary JSON via `json.dump(...)` with this schema:
+     ```python
+     summary = {
+         "moran_I": float(result.I),      # or None if not computed
+         "p_value": float(result.p_sim),   # or None
+         "n": int(n_units),                # observation units (grid cells or sites)
+         "n_islands": int(n_islands),      # removed islands
+         "threshold_m": int(threshold),    # distance threshold used
+         "analysis_type": "{{ analysis_type }}",
+         "interpretation": "short text"
+     }
+     ```
+     For bivariate analyses: use key `moran_I` (not `bivariate_moran_I` or `I`).
+     For multiple tests: top-level dict with key per group, each containing the schema.
+     Convert NumPy types to Python-native (`int`, `float`) before `json.dump`.
+   - If matplotlib figures are created, save as SVG and PDF (bbox_inches='tight', dpi=300).
+   - Use `Path(...).mkdir(parents=True, exist_ok=True)`.
+6. Print to stdout:
+   ```
+   n_units: <integer>
+   Moran's I: <float>
+   p_value: <float>
+   ```
+   Then a short human-readable interpretation.
+
+## Libraries and API
+Use only: `pandas`, `geopandas`, `numpy`, `scipy`, `libpysal`, `esda`, `matplotlib`.
+
+**esda API** (use ONLY these attributes):
+- `esda.moran.Moran(y, w)` -> `.I`, `.p_sim`, `.z_sim`
+- `esda.moran.Moran_BV(x, y, w)` -> `.I`, `.p_sim`
+- Access p-value via `.p_sim` only. Do NOT use `.p_norm`, `.p_value`, `.p_z_sim`.
+
+**Spatial weights** (`DistanceBand`):
+- Always: `DistanceBand.from_dataframe(gdf, threshold=5000, silence_warnings=True)`
+- Remove islands: `gdf = gdf.drop(index=weights.islands)` then rebuild weights.
+  `weights.islands` contains index labels directly -- do NOT re-index them.
+- Do NOT use `.subset()` (does not exist) or `spatial_autocorrelation` (does not exist).
+- Default threshold: 5000 m. All distances in metres.
+
+## Variance Invariant (MANDATORY)
+Before ANY `Moran(y, w)` or `Moran_BV(x, y, w)` call:
+```python
+if np.std(y) == 0:
+    print(f"WARNING: Variable has zero variance (constant). Skipping.")
+    # Save result with moran_I=None and reason. Do NOT call Moran/Moran_BV.
+```
+A constant variable ALWAYS produces NaN. This means the data preparation is wrong.
+Never filter/subset the DataFrame to a single group before computing an indicator -- this creates a constant column.
+
+{% if analysis_type == "autocorrelation" %}
+## Autocorrelation Methodology
+Tests whether features of a given type are spatially clustered (Moran's I on a meaningful attribute -- NEVER on coordinates).
+
+**Comparative** (data has `group_label`):
+For each unique group value G in `gdf['group_label'].unique()`:
+- `binary = (gdf['group_label'] == G).astype(int)` across the **entire** DataFrame (all rows, all groups).
+- Compute `Moran(binary, weights)`. This tests whether group G's features cluster relative to the overall distribution.
+- For two groups, Moran's I values are complements; report both.
+
+**Single group** (no `group_label`):
+Create a regular spatial grid (e.g., 1 km cells via `numpy.arange`), count features per cell, build weights on cell centroids, compute `Moran(counts, w)`.
+
+{% elif analysis_type == "colocation" %}
+## Colocation Methodology
+Tests bivariate spatial association between two phenomena using `Moran_BV(x, y, w)`.
+- `x` = first variable (binary presence or count)
+- `y` = second variable (binary presence or count)
+- `w` = spatial weights (row-standardized: `w.transform = 'R'`)
+
+**Site-level approach (primary)**:
+Data has one row per Site with count columns (`n_group_a`, `n_group_b`).
+1. Create binary indicators: `has_a = (df['n_group_a'] > 0).astype(int)`, `has_b = (df['n_group_b'] > 0).astype(int)`.
+2. Remove double-null sites: `gdf = gdf[(gdf['has_a'] > 0) | (gdf['has_b'] > 0)]`.
+3. Build weights on site coordinates (threshold=5000m), remove islands.
+4. `Moran_BV(has_a.values, has_b.values, w, permutations=9999)`.
+Do NOT use grid aggregation for colocation -- it introduces MAUP artifacts.
+
+If the question mentions "Groesse"/"size"/"Anzahl"/"count": use actual counts (not binary) as one variable.
+If multiple indicator groups (e.g., sedentary + mobility): compute `Moran_BV` separately for each group against the target.
+
+**Interpretation**: Positive I = colocation (cluster together). Negative I = anti-colocation (avoid each other).
+p > 0.05: measurable colocation below statistical significance threshold.
+
+{% elif analysis_type == "spatial_distance" %}
+## Spatial Distance Methodology
+Tests whether nearby spatial units of a base type share indicator status (Moran's I on binary variable).
+
+**Site-level workflow** (when data has `site_SiteID` and `group_label`):
+1. Aggregate to Site level: for each `site_SiteID`, collect the set of `group_label` values. Keep one row per site with coordinates.
+2. Define base set = all Sites containing the "base" group (e.g., cemetery).
+3. For each indicator group G: `y = base_sites['groups'].apply(lambda g: int(G in g))`. Apply variance check.
+4. Build GeoDataFrame, weights, remove islands, compute `Moran(y, w)`.
+
+**Pre-computed proximity** (if data has `nearby_indicator_categories` column from CLOSE_TO_SITE):
+For each base site: `y = int('indicator_group' in nearby_indicator_categories)`.
+This uses Neo4j pre-computed proximity (< 500m) and is more precise than DistanceBand.
+
+Without `site_SiteID`: use grid-based approach (assign to cells, compute binary indicator per cell).
+
+**Interpretation**: Positive I = nearby base sites share status (clustering). Negative I = they differ (dispersion).
+
+{% elif analysis_type == "hotspot" %}
+## Hotspot Methodology
+Use Getis-Ord Gi* statistic to identify statistically significant hot/cold spots.
+Build a grid or use site-level counts, compute Gi* via `esda.getisord.G_Local`, identify cells with z-score > 1.96 (p < 0.05).
+
+{% elif analysis_type == "correlation" %}
+## Correlation Methodology
+Compute Pearson/Spearman correlation between spatial variables. If spatial autocorrelation is suspected, use spatially-adjusted significance tests.
+
+{% elif analysis_type == "ripley_k" %}
+## Ripley's K Methodology
+Use `pointpats.K` or manual implementation to compute K-function and compare to CSR envelope.
+
+{% endif %}
+## Anti-Patterns
+- Never use `np.isnan()` without numpy import. Prefer `np.isnan()` over `math.isnan()`.
+- In `groupby().agg()`, use column name STRINGS only: `('is_A', 'sum')`, not `(mask_variable, 'sum')`.

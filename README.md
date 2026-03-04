@@ -121,8 +121,7 @@ Zugriff:
 
 ### 1. Kolokation Ridge-Tumuli ↔ Settlements
 
-> Gibt es eine statistisch signifikante Kolokation von ridge tumulus-sites (category: tumulus; location1: ridge) mit settlements (categories: habitation site; hut; settlement)? Wenn ja, weisen diese eine räumliche Autokorrelation auf? Wo liegen die diesbezüglichen Hotspots? Korreliert bei ridge tumuli die Anzahl von Features pro Site mit ihrem Beitrag zur Kolokation mit habitation sites? (Missverständlich, da tumulus in site nicht vorkommt)
-> Gibt es eine statistisch signifikante Kolokation zwischen Features mit Category = 'tumulus' und Location1 = 'ridge' und solchen mit Category IN ['habitation site', 'hut', 'settlement']? (Besser)
+> Gibt es eine statistisch signifikante Kolokation von ridge tumulus-sites (category: tumulus; location1: ridge) mit settlements (categories: habitation site; hut; settlement)? Wenn ja, weisen diese eine räumliche Autokorrelation auf? Wo liegen die diesbezüglichen Hotspots? Korreliert bei ridge tumuli die Anzahl von Features pro Site mit ihrem Beitrag zur Kolokation mit habitation sites?
 
 ✅ Es gibt eine messbare Kolokation, diese liegt jedoch unterhalb der statistischen Signifkanzschwelle (p > 0.05). Hotspot ist die Region zwischen 32°05'E und 32°37'E.
 
@@ -155,7 +154,7 @@ Zugriff:
 
 | Komponente              | Details                                              |
 | ----------------------- | ---------------------------------------------------- |
-| **LLM**                 | OpenAI GPT-4o + text-embedding-3-small               |
+| **LLM**                 | OpenAI GPT-4.1 + text-embedding-3-small              |
 | **Graphdatenbank**      | Neo4j 5.x mit GDS & APOC                             |
 | **Räumliche Statistik** | PySAL, RipleyK, DBSCAN, Heatmaps                     |
 | **UI**                  | Streamlit + Pydeck                                   |

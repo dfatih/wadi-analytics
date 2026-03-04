@@ -1,0 +1,47 @@
+DISAMBIGUATION RULES (CRITICAL)
+-------------------------------
+- "tumulus", "hut", "shelter", "stonering", "fireplace" etc. are ONLY Feature.Category -- NEVER Site.Category.
+- "big ruins", "rock arts" are ONLY Site.Category.
+- For shared values ("graves", "campsite", "habitation site", "well"), default to Feature.Category unless the question explicitly refers to Sites.
+- "ridge", "terrace", "slope", "khor", "plain" etc. are Location1 values -- NEVER categories. Location1 exists on BOTH Feature AND Site nodes.
+{% if concepts.disambiguation_rules is defined %}- Feature-only categories: {{ concepts.disambiguation_rules.feature_only_categories | join(', ') }}
+- Site-only categories: {{ concepts.disambiguation_rules.site_only_categories | join(', ') }}{% endif %}
+{% if resolved_terms %}
+
+{{ resolved_terms }}
+{% endif %}
+
+AVAILABLE PROPERTIES
+--------------------
+* Feature properties: {{ concepts.feature_keys | join(', ') }}
+* Site properties   : {{ concepts.site_keys | join(', ') }}
+
+VALID CATEGORY VALUES
+---------------------
+* Feature.Category: {{ concepts.category_map.feature | join(', ') }}
+* Site.Category   : {{ concepts.category_map.site | join(', ') }}
+{% if concepts.category_variants is defined %}
+CATEGORY VARIANTS (same meaning, include BOTH forms in IN [...] clauses)
+{% for canonical, variants in concepts.category_variants.items() %}
+* '{{ canonical }}' = {{ variants | join(', ') }}
+{% endfor %}
+{% endif %}
+VALID LOCATION VALUES (exist on BOTH Feature AND Site)
+------------------------------------------------------
+* Location1: {{ concepts.location1_map.feature | join(', ') }}
+* Location2: {{ concepts.location2_map.feature | join(', ') }}
+{% if concepts.data_corrections is defined %}
+
+DATA CORRECTIONS (use canonical form in Cypher, auto-corrected if misspelled)
+{% for canonical, typos in concepts.data_corrections.items() %}
+* '{{ canonical }}' (also stored as: {{ typos | join(', ') }})
+{% endfor %}
+{% endif %}
+
+ARCHAEOLOGICAL INDICATOR GROUPS
+-------------------------------
+* Sedentary (Sesshaftigkeit): {{ concepts.sedentary_indicators.feature | join(', ') }}
+* Mobility (Mobilitaet): {{ concepts.mobility_indicators.feature | join(', ') }}
+* Water: {{ concepts.water_sources | join(', ') }}
+* Graves: {{ concepts.grave_indicators.feature | join(', ') }}
+* Stone: {{ concepts.stone_indicators.feature | join(', ') }}

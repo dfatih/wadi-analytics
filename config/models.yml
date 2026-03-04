@@ -1,0 +1,34 @@
+default_model: "gpt-4.1"
+
+models:
+  gpt-4.1:
+    type: chat
+    supports_system_message: true
+    supports_temperature: true
+    default_temperature: 1.0
+    cost_per_1k_prompt: 0.002
+    cost_per_1k_completion: 0.008
+
+  gpt-4.1-mini:
+    type: chat
+    supports_system_message: true
+    supports_temperature: true
+    default_temperature: 1.0
+    cost_per_1k_prompt: 0.0004
+    cost_per_1k_completion: 0.0016
+
+  gpt-5.1-chat-latest:
+    type: chat
+    supports_system_message: true
+    supports_temperature: false
+    default_temperature: 1.0
+    cost_per_1k_prompt: 0.00125
+    cost_per_1k_completion: 0.01
+
+  gpt-5.2-chat-latest:
+    type: chat
+    supports_system_message: true
+    supports_temperature: false
+    default_temperature: 1.0
+    cost_per_1k_prompt: 0.00125
+    cost_per_1k_completion: 0.01

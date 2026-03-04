@@ -1,3 +1,4 @@
+"""Import-Pipeline: GeoPackage -> DuckDB -> Embeddings -> CSV -> Neo4j."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,7 +13,7 @@ import pandas as pd
 import geopandas as gpd
 
 # ---------------------------------------------------------------------------
-# Config
+# Konfiguration
 # ---------------------------------------------------------------------------
 GPKG_PATH = Path("data/WADI_12_2016.gpkg")
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
@@ -20,16 +21,17 @@ NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASS = os.getenv("NEO4J_PASS") or os.getenv("NEO4J_PASSWORD", "")
 
 # ---------------------------------------------------------------------------
-# UI Entry
+# Einstiegspunkt
 # ---------------------------------------------------------------------------
 def run_import() -> None:
+    """Fuehrt den vollstaendigen Datenimport durch (4 Schritte)."""
     if not GPKG_PATH.exists():
-        raise FileNotFoundError(f"Missing .gpkg file: {GPKG_PATH}")
+        raise FileNotFoundError(f"GeoPackage nicht gefunden: {GPKG_PATH}")
 
-    st.write("### 📦 Step 1: Cleaning and loading into DuckDB …")
-    with st.spinner("Cleaning data …"):
+    st.write("### Schritt 1: Bereinigung und DuckDB-Import")
+    with st.spinner("Daten werden bereinigt ..."):
         stats = gpkg_to_duckdb(GPKG_PATH)
-        st.success("Step 1 complete.")
+        st.success("Schritt 1 abgeschlossen.")
 
         sites_raw = gpd.read_file(GPKG_PATH, layer="Sites")
         feats_raw = gpd.read_file(GPKG_PATH, layer="Features")
@@ -44,57 +46,66 @@ def run_import() -> None:
             if "geometry" in gdf.columns:
                 gdf["geometry"] = gdf["geometry"].apply(lambda g: g.wkt if g else None)
 
-        with st.expander("🧹 Dropped Site Rows (missing X/Y)"):
-            st.write(f"Total dropped: {stats['dropped_sites_xy']}")
+        with st.expander("Entfernte Site-Zeilen (fehlende X/Y)"):
+            st.write(f"Insgesamt entfernt: {stats['dropped_sites_xy']}")
             st.dataframe(sites_dropped_xy.drop(columns=["geometry"]), use_container_width=True)
 
-        with st.expander("🧹 Dropped Feature Rows (missing X/Y)"):
-            st.write(f"Total dropped: {stats['dropped_feats_xy']}")
+        with st.expander("Entfernte Feature-Zeilen (fehlende X/Y)"):
+            st.write(f"Insgesamt entfernt: {stats['dropped_feats_xy']}")
             st.dataframe(feats_dropped_xy.drop(columns=["geometry"]), use_container_width=True)
 
-        with st.expander("⚠️ Duplicate SiteIDs"):
-            st.write(f"Total dropped: {stats['dropped_sites_dup']}")
+        with st.expander("Doppelte SiteIDs"):
+            st.write(f"Insgesamt entfernt: {stats['dropped_sites_dup']}")
             st.dataframe(duplicate_sites.drop(columns=["geometry"]), use_container_width=True)
 
-        with st.expander("⚠️ Duplicate FeatureIDs"):
-            st.write(f"Total dropped: {stats['dropped_feats_dup']}")
+        with st.expander("Doppelte FeatureIDs"):
+            st.write(f"Insgesamt entfernt: {stats['dropped_feats_dup']}")
             st.dataframe(duplicate_feats.drop(columns=["geometry"]), use_container_width=True)
-        
-        with st.expander("⚠️ Orphaned Features (no matching SiteID)"):
-                st.write(f"Total dropped: {len(orphan_feats)}")
+
+        with st.expander("Verwaiste Features (kein zugehoeriger Site)"):
+                st.write(f"Insgesamt entfernt: {len(orphan_feats)}")
                 st.dataframe(orphan_feats.drop(columns=["geometry"]), use_container_width=True)
 
-    st.write("### 🔎 Step 2: Generating Embeddings …")
-    with st.spinner("Generating embeddings …"):
+    st.write("### Schritt 2: Embeddings erzeugen")
+    with st.spinner("Embeddings werden generiert ..."):
         generate_embeddings()
-        st.success("Step 2 complete.")
+        st.success("Schritt 2 abgeschlossen.")
 
-    st.write("### 📤 Step 3: Exporting CSVs …")
-    with st.spinner("Writing final CSVs …"):
+    st.write("### Schritt 3: CSV-Export")
+    with st.spinner("CSV-Dateien werden geschrieben ..."):
         sites_csv, feats_csv = export_csvs()
-        st.success(f"Exported: {sites_csv.name}, {feats_csv.name}")
+        st.success(f"Exportiert: {sites_csv.name}, {feats_csv.name}")
 
-    st.write("### 📡 Step 4: Importing into Neo4j …")
+    st.write("### Schritt 4: Neo4j-Import")
     bar_sites = st.progress(0, text="Sites: 0%")
     bar_feats = st.progress(0, text="Features: 0%")
+    bar_proximity = st.progress(0, text="Proximity: wartend ...")
     status_sites = st.empty()
     status_feats = st.empty()
+    status_proximity = st.empty()
 
     total_sites = len(pd.read_csv(sites_csv))
     total_feats = len(pd.read_csv(feats_csv))
 
-    def progress_cb(phase: str, processed: int, _ignored_total: int):
-        total = total_sites if phase == "sites" else total_feats
-        pct = min(int(processed / total * 100), 100)
-        text = f"{phase.title()}: {processed}/{total} rows ({pct}%)"
+    def progress_cb(phase: str, processed: int, total: int):
         if phase == "sites":
+            pct = min(int(processed / total_sites * 100), 100)
+            text = f"Sites: {processed}/{total_sites} Zeilen ({pct}%)"
             bar_sites.progress(pct, text=text)
             status_sites.text(text)
         elif phase == "feats":
+            pct = min(int(processed / total_feats * 100), 100)
+            text = f"Features: {processed}/{total_feats} Zeilen ({pct}%)"
             bar_feats.progress(pct, text=text)
             status_feats.text(text)
+        elif phase == "proximity":
+            pct = min(int(processed / max(total, 1) * 100), 100)
+            label = "Sites" if processed == 0 else ("Features" if processed == 1 else "fertig")
+            text = f"Proximity: {label} ({pct}%)"
+            bar_proximity.progress(pct, text=text)
+            status_proximity.text(text)
 
-    with st.spinner("Importing into Neo4j …"):
+    with st.spinner("Daten werden in Neo4j importiert ..."):
         import_to_neo4j(
             uri=NEO4J_URI,
             user=NEO4J_USER,
@@ -104,7 +115,7 @@ def run_import() -> None:
             batch_size=1000,
             progress_cb=progress_cb,
         )
-        st.success("✅ Import complete. Refresh the page to switch to chat mode.")
+        st.success("Import abgeschlossen. Seite neu laden um zum Chat zu wechseln.")
 
 if __name__ == "__main__":
     run_import()

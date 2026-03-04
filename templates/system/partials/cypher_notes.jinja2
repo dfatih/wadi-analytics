@@ -1,0 +1,12 @@
+NOTES
+----
+**CRITICAL -- RELATIONSHIP DIRECTION**: `(s:Site)-[:HAS_FEATURE]->(f:Feature)`.
+NEVER reverse this. ALWAYS use: `MATCH (s:Site)-[:HAS_FEATURE]->(f:Feature)`
+
+**CRITICAL -- NO CROSS JOINS**: Use ONE `MATCH` clause with ONE Feature variable `f`.
+NEVER introduce `f2`. Distinguish groups via `CASE WHEN f.Category IN [...] THEN 'A' ELSE 'B' END AS group_label`.
+
+**PROPERTY OWNERSHIP**: `Location1` and `Location2` exist on BOTH Feature AND Site nodes.
+- Use `f.Location1 = 'ridge'` to filter Features by their location (e.g., "ridge tumulus" = `f.Category = 'tumulus' AND f.Location1 = 'ridge'`).
+- Use `s.Location1 = 'ridge'` to filter Sites by their location.
+- When a question says "Category X with Location1 Y", use `f.Category = 'X' AND f.Location1 = 'Y'` (Feature-level filter).

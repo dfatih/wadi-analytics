@@ -1,26 +1,40 @@
-# main.py
+"""Einstiegspunkt fuer die Wadi-Analytics Streamlit-Anwendung.
+
+Konfiguriert Theming, CSS-Injection, Navigation via st.navigation()
+und globale Sidebar-Controls (Modellwahl, Session-Metriken).
+"""
+from __future__ import annotations
+
+import os
 
 import streamlit as st
 from neo4j import GraphDatabase, basic_auth
-import os
+
+from chat_models import ChatMessage
+from css import inject_css
+from modules.helper import get_available_models, DEFAULT_MODEL
 from modules.logger import get_logger
-from ui_import import run_import   # calls ui_import.main()
-from ui_chat import run_chat             # calls your chat entrypoint
+from ui_chat import run_chat
+from ui_comparison import show_comparison_dashboard
+from ui_import import run_import
 from ui_map import show_map_view
 
 log = get_logger(__name__)
 
-# Pull credentials from env (same vars used by ui_import.py)
-NEO4J_URI  = os.getenv("NEO4J_URI",  "bolt://localhost:7687")
+# Neo4j-Verbindungsdaten aus Umgebungsvariablen
+NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASS = os.getenv("NEO4J_PASS") or os.getenv("NEO4J_PASSWORD", "")
 
+
+# ---------------------------------------------------------------------------
+# Neo4j-Pruefung
 # ---------------------------------------------------------------------------
 def _neo4j_empty() -> bool:
-    """
-    Return True if Neo4j has zero nodes. If any exception occurs
-    (e.g. bad creds, network issues), treat it as “empty” so the
-    import UI can surface for the user to fix credentials.
+    """Prueft ob Neo4j keine Knoten enthaelt.
+
+    Bei Verbindungsfehlern wird True zurueckgegeben, damit die
+    Import-Seite angezeigt wird und der Nutzer die Zugangsdaten pruefen kann.
     """
     try:
         driver = GraphDatabase.driver(NEO4J_URI, auth=basic_auth(NEO4J_USER, NEO4J_PASS))
@@ -29,27 +43,180 @@ def _neo4j_empty() -> bool:
         driver.close()
         return (total or 0) == 0
     except Exception as e:
-        log.warning("Could not check Neo4j emptiness: %s", e)
+        log.warning("Neo4j-Erreichbarkeit konnte nicht geprueft werden: %s", e)
         return True
 
+
+# ---------------------------------------------------------------------------
+# Session-State-Initialisierung und Migration
+# ---------------------------------------------------------------------------
+def _init_session_state() -> None:
+    """Initialisiert den Session-State mit Defaults und migriert alte Formate."""
+    # Migration: alte (sender, text)-Tupel -> ChatMessage-Objekte
+    if "history" in st.session_state and "chat_messages" not in st.session_state:
+        migrated: list[ChatMessage] = []
+        for item in st.session_state["history"]:
+            if not isinstance(item, (tuple, list)) or len(item) != 2:
+                log.warning("Unbekanntes History-Format uebersprungen: %s", type(item))
+                continue
+            sender, text = item
+            role = "user" if sender == "user" else "assistant"
+            migrated.append(ChatMessage(role=role, text=str(text)))
+        st.session_state["chat_messages"] = migrated
+        del st.session_state["history"]
+
+    st.session_state.setdefault("chat_messages", [])
+    st.session_state.setdefault("active_model", DEFAULT_MODEL)
+    # comparison_toggle wird vom st.toggle-Widget verwaltet (key="comparison_toggle")
+    st.session_state.setdefault("session_metrics", {
+        "total_tokens": 0,
+        "total_cost": 0.0,
+        "n_queries": 0,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Import-Seite (Wrapper mit Doppelstart-Schutz)
+# ---------------------------------------------------------------------------
+def _show_import_page() -> None:
+    """Zeigt die Import-UI mit Start-Button. Import-Logik bleibt unveraendert."""
+    st.title("Wadi Abu Dom -- GeoImporter")
+    st.caption("Ausgewaehlt: `data/WADI_12_2016.gpkg`")
+    is_running = st.session_state.get("import_running", False)
+    if st.button("Import starten", disabled=is_running):
+        st.session_state["import_running"] = True
+        try:
+            run_import()
+        finally:
+            st.session_state["import_running"] = False
+
+
+# ---------------------------------------------------------------------------
+# Sidebar-Controls (global, nicht in Page-Funktionen)
+# ---------------------------------------------------------------------------
+def _render_sidebar_controls() -> None:
+    """Rendert Modellwahl, Vergleichs-Toggle und Session-Metriken in der Sidebar."""
+    with st.sidebar:
+        # -- Modell-Sektion --
+        st.markdown(
+            '<div class="sidebar-section-title">Modell</div>',
+            unsafe_allow_html=True,
+        )
+
+        models = get_available_models()
+        if models:
+            options = [m["api_name"] for m in models]
+            labels = [m["display_name"] for m in models]
+
+            # Aktuellen Index bestimmen
+            current = st.session_state.get("active_model", DEFAULT_MODEL)
+            current_idx = options.index(current) if current in options else 0
+
+            idx = st.selectbox(
+                "Modell",
+                range(len(options)),
+                index=current_idx,
+                format_func=lambda i: labels[i],
+                key="model_selector_widget",
+                label_visibility="collapsed",
+            )
+            st.session_state["active_model"] = options[idx]
+
+        # -- Analyse-Sektion --
+        st.markdown(
+            '<div class="sidebar-section-title">Analyse</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.session_state["grid_cell_size"] = st.select_slider(
+            "Grid-Zellgroesse",
+            options=[500, 1000, 2000, 5000, 10000],
+            value=st.session_state.get("grid_cell_size", 2000),
+            format_func=lambda x: f"{x} m",
+            key="grid_cell_size_widget",
+        )
+
+        # Vergleichsmodus
+        st.toggle("Vergleichsmodus", key="comparison_toggle")
+
+        if st.session_state.get("comparison_toggle"):
+            if models:
+                options = [m["api_name"] for m in models]
+                labels_map = {m["api_name"]: m["display_name"] for m in models}
+                selected = st.multiselect(
+                    "Modelle vergleichen",
+                    options,
+                    default=options[:2],
+                    format_func=lambda x: labels_map.get(x, x),
+                    key="comparison_models_widget",
+                )
+                st.session_state["comparison_models_selected"] = selected
+                if len(selected) < 2:
+                    st.warning("Bitte mindestens 2 Modelle auswaehlen.")
+
+        # -- Sitzung-Sektion --
+        st.markdown(
+            '<div class="sidebar-section-title">Sitzung</div>',
+            unsafe_allow_html=True,
+        )
+
+        sm = st.session_state.get("session_metrics", {})
+        n_queries = sm.get("n_queries", 0)
+        total_cost = sm.get("total_cost", 0.0)
+
+        col1, col2 = st.columns(2)
+        col1.metric("Fragen", n_queries)
+        col2.metric("Kosten", f"${total_cost:.3f}")
+
+        if st.button("Chat leeren", use_container_width=True):
+            st.session_state["chat_messages"] = []
+            st.session_state["session_metrics"] = {
+                "total_tokens": 0,
+                "total_cost": 0.0,
+                "n_queries": 0,
+            }
+            st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Hauptfunktion
 # ---------------------------------------------------------------------------
 def main() -> None:
-    # This must come first before any other Streamlit commands:
-    st.set_page_config(page_title="Wadi Abu Dom", layout="wide")
+    st.set_page_config(
+        page_title="Wadi Abu Dom",
+        page_icon=":material/landscape:",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+
+    inject_css()
+    _init_session_state()
 
     if _neo4j_empty():
-        # Database is empty or unreachable → show import screen
-        st.title("Wadi Abu Dom – GeoImporter")
-        st.caption("Selected: `data/WADI_12_2016.gpkg`")
-        
-        if st.button("🚀 Start Import"):
-            run_import()
-    else:
-        page = st.sidebar.radio("📚 Navigation", ["🧠 Chat", "🗺️ Karte"])
-        if page == "🧠 Chat":
-            run_chat()
-        elif page == "🗺️ Karte":
-            show_map_view()
+        pg = st.navigation([st.Page(_show_import_page, title="Datenimport")])
+        pg.run()
+        return
+
+    _render_sidebar_controls()
+
+    map_page = st.Page(show_map_view, title="Karte", icon=":material/map:")
+    pg = st.navigation({
+        "Analyse": [
+            st.Page(run_chat, title="Chat", icon=":material/chat:"),
+            map_page,
+        ],
+        "Auswertung": [
+            st.Page(show_comparison_dashboard, title="Modellvergleich", icon=":material/compare:"),
+        ],
+    })
+
+    # Programmatischer Seitenwechsel (ausgeloest z.B. durch "Auf Karte anzeigen")
+    nav_target = st.session_state.pop("_navigate_to", None)
+    if nav_target == "map":
+        st.switch_page(map_page)
+
+    pg.run()
+
 
 if __name__ == "__main__":
     main()
