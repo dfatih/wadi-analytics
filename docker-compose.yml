@@ -54,6 +54,7 @@ services:
       - ./results:/app/results
       - ./config:/app/config
       - ./templates:/app/templates
+      - ./scripts:/app/scripts
     depends_on:
       neo4j:
         condition: service_healthy

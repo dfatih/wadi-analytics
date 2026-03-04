@@ -42,7 +42,7 @@ mobility_indicators:
   feature:
     - shelter
     - stoneplace
-    - camp site
+    - campsite
     - fireplace
     - gravel platform
 
@@ -60,9 +60,10 @@ water_sources:
 grave_indicators:
   feature:
     - tumulus
-    - box graves
+    - box grave
     - cleft burial
     - grave
+    - dome grave
   site:
     - graves
 
@@ -244,3 +245,72 @@ location2_map:
     - plateau
     - hangfuss
     - pediment
+
+category_variants:
+  "box grave":
+    - "box graves"
+  "campsite":
+    - "camp site"
+  "stone feature":
+    - "stonefeature"
+    - "stone features"
+
+data_corrections:
+  "grave": ["gravf", "gravr"]
+  "ridge": ["rdige", "rideg"]
+  "riparian": ["riaprian"]
+  "hinterland": ["hinteralnd"]
+  "campsite": ["camp site"]
+  "box grave": ["box graves"]
+
+disambiguation_rules:
+  feature_only_categories:
+    - tumulus
+    - hut
+    - shelter
+    - stonering
+    - fireplace
+    - gravel platform
+    - concentration of stones
+    - box grave
+    - cleft burial
+    - rock art
+    - stoneplace
+    - gravel feature
+    - ceramics
+    - paved platform
+    - platform
+    - tethering stone
+    - dome grave
+    - deposit
+    - stonefeature
+    - wall
+    - grave
+    - lithics
+    - workshop
+    - stone feature
+    - gibla
+    - rock gong
+    - stone ring
+    - alam
+  site_only_categories:
+    - big ruins
+    - rock arts
+
+german_aliases:
+  "Friedhof": ["tumulus", "box grave", "cleft burial", "grave", "dome grave"]
+  "Friedhoefe": ["tumulus", "box grave", "cleft burial", "grave", "dome grave"]
+  "Graeber": ["tumulus", "box grave", "cleft burial", "grave", "dome grave"]
+  "Grab": ["grave"]
+  "Tumulus": ["tumulus"]
+  "Siedlung": ["habitation site", "hut", "settlement"]
+  "Sesshaftigkeit": ["habitation site", "hut", "settlement"]
+  "Sesshaftigkeitsindikatoren": ["habitation site", "hut", "settlement"]
+  "Mobilitaet": ["shelter", "stoneplace", "campsite", "fireplace", "gravel platform"]
+  "Mobilitaetsindikatoren": ["shelter", "stoneplace", "campsite", "fireplace", "gravel platform"]
+  "Brunnen": ["well"]
+  "Felskunst": ["rock art"]
+  "Felsbilder": ["rock art"]
+  "Kuppelgrab": ["dome grave"]
+  "Schachtgrab": ["cleft burial"]
+  "Kastengrab": ["box grave"]

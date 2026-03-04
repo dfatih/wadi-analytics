@@ -98,7 +98,7 @@ TOOL_SCHEMAS: list[dict] = [
 
 
 # ---------------------------------------------------------------------------
-# Cypher-Bereinigung (wiederverwendet aus alter llm.py)
+# Cypher-Bereinigung
 # ---------------------------------------------------------------------------
 def _sanitize_cypher(cypher: str) -> str:
     """Bereinigt LLM-generiertes Cypher von gaengigen Artefakten."""
@@ -311,17 +311,18 @@ def run_agent(
     model: Optional[str] = None,
     data_path: str = "results/analysis_input.json",
     cell_size: int = 2000,
+    client=None,
+    temperature: Optional[float] = None,
 ) -> AgentResult:
     """Beantwortet eine archaeologische Forschungsfrage im agentischen Loop.
-
-    Das LLM erhaelt Tools (run_cypher_query, run_spatial_analysis) und
-    entscheidet autonom, welche Schritte noetig sind.
 
     Args:
         question: Die Nutzerfrage.
         model: Optionaler Modellname (Default aus Registry).
         data_path: Pfad fuer zwischengespeicherte Cypher-Ergebnisse.
         cell_size: Grid-Zellgroesse in Metern fuer raeumliche Analysen.
+        client: Optionaler OpenAI/AzureOpenAI-Client.
+        temperature: Optionale Temperatur-Ueberschreibung.
 
     Returns:
         AgentResult mit Antworttext, Tool-Aufrufen und Metriken.
@@ -362,6 +363,8 @@ def run_agent(
         tool_handler=tool_handler,
         model=model,
         max_iterations=10,
+        client=client,
+        temperature=temperature,
     )
 
     return result

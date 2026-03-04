@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -37,7 +38,6 @@ class LLMResult:
     answer: str
     metadata: dict = field(default_factory=dict)
 
-    # Rueckwaertskompatibel: str(result) liefert nur den Antworttext
     def __str__(self) -> str:
         return self.answer
 
@@ -137,14 +137,6 @@ def _calculate_cost(
                                                       cfg.get("cost_per_1k_completion", 0))
     return round(cost, 6)
 
-
-DEFAULTS: dict = {
-    "crs": "EPSG:4326",
-    "distance_threshold": 1000,
-    "n_simulations": 99,
-    "value_column": "value",
-    "output_file": "analysis_result.geojson",
-}
 
 TEMPLATE_FOLDER = Path(__file__).parent.parent / "templates"
 CONFIG_FOLDER   = Path(__file__).parent.parent / "config"
@@ -304,6 +296,8 @@ def call_llm_with_tools(
     tool_handler: Callable[[str, dict], tuple[str, ToolCallRecord]],
     model: Optional[str] = None,
     max_iterations: int = 10,
+    client: Optional[Any] = None,
+    temperature: Optional[float] = None,
 ) -> AgentResult:
     """Fuehrt einen agentischen LLM-Loop mit Tool-Use durch.
 
@@ -311,7 +305,12 @@ def call_llm_with_tools(
     sie aus und gibt (result_text_fuer_llm, record_fuer_ui) zurueck.
     Der Loop laeuft bis das LLM eine finale Textantwort gibt oder
     max_iterations erreicht ist.
+
+    Args:
+        client: Optionaler OpenAI/AzureOpenAI-Client. Default: globaler CLIENT.
+        temperature: Optionale Temperatur-Ueberschreibung.
     """
+    api_client = client or CLIENT
     effective_model = model or DEFAULT_MODEL
     cfg = get_model_config(effective_model)
     is_reasoning = cfg.get("type") == "reasoning"
@@ -331,10 +330,11 @@ def call_llm_with_tools(
             "messages": messages,
             "tools": tools,
         }
+        effective_temp = temperature if temperature is not None else cfg.get("default_temperature", 0.2)
         if cfg.get("supports_temperature", True):
-            kwargs["temperature"] = cfg.get("default_temperature", 0.2)
+            kwargs["temperature"] = effective_temp
 
-        response = CLIENT.chat.completions.create(**kwargs)
+        response = api_client.chat.completions.create(**kwargs)
         choice = response.choices[0]
 
         # Token-Zaehler akkumulieren
@@ -472,7 +472,6 @@ def _clean(code: str) -> str:
     if m:
         code = m.group(1)
     else:
-        # Fallback: Alle ```...```-Bloecke entfernen (Legacy-Verhalten)
         code = re.sub(r"```.*?```", "", code, flags=re.S)
     # Schritt 2: Prosa vor der ersten Python-Direktive entfernen
     for i, line in enumerate(code.splitlines()):
@@ -497,7 +496,7 @@ def run_python_code(raw_code: str) -> Tuple[str, str]:
         tmp.write_text(script_code, encoding="utf-8")
 
         proc = subprocess.run(
-            ["python", str(tmp)],
+            [sys.executable, str(tmp)],
             capture_output=True,
             text=True,
             timeout=900,
@@ -505,14 +504,6 @@ def run_python_code(raw_code: str) -> Tuple[str, str]:
         )
     return proc.stdout, proc.stderr
 
-
-def load_prompt(name: str) -> dict:
-    """Laedt ein statisches YML-Promptformat aus dem config-Verzeichnis."""
-    path = CONFIG_FOLDER / f"{name}.yml"
-    if not path.exists():
-        raise FileNotFoundError(f"Prompt-Konfiguration nicht gefunden: {path}")
-    with path.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
 
 _driver = GraphDatabase.driver(
     os.getenv("NEO4J_URI"),

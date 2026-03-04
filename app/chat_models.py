@@ -41,11 +41,7 @@ class DisambiguationRecord:
 # ---------------------------------------------------------------------------
 @dataclass
 class StepRecord:
-    """UI-Abbild eines ausgefuehrten Analyseschritts.
-
-    Wird aus StepResult (modules/chain.py) plus zusaetzlichen Daten
-    (Code, Disambiguation) konstruiert.  StepResult selbst bleibt stabil.
-    """
+    """UI-Abbild eines ausgefuehrten Analyseschritts."""
     step_index: int = 0
     analysis_type: str = ""
     decision_type: str = ""       # "cypher" | "python"

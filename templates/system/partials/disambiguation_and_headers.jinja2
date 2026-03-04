@@ -21,11 +21,13 @@ VALID CATEGORY VALUES
 * Feature.Category: {{ concepts.category_map.feature | join(', ') }}
 * Site.Category   : {{ concepts.category_map.site | join(', ') }}
 {% if concepts.category_variants is defined %}
-CATEGORY VARIANTS (same meaning, include BOTH forms in IN [...] clauses)
+
+CATEGORY VARIANTS (same meaning -- use the FIRST form in Cypher)
 {% for canonical, variants in concepts.category_variants.items() %}
 * '{{ canonical }}' = {{ variants | join(', ') }}
 {% endfor %}
 {% endif %}
+
 VALID LOCATION VALUES (exist on BOTH Feature AND Site)
 ------------------------------------------------------
 * Location1: {{ concepts.location1_map.feature | join(', ') }}

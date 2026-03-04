@@ -64,7 +64,7 @@ def _h3_bin_dataframe(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     # 1 – assign H3 index
     gdf["_h3"] = [
-        h3.geo_to_h3(lat, lon, H3_RESOLUTION)
+        h3.latlng_to_cell(lat, lon, H3_RESOLUTION)
         for lon, lat in zip(gdf["lon"], gdf["lat"])
     ]
 
@@ -83,9 +83,9 @@ def _h3_bin_dataframe(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
     # 3 – hexagon geometry (centroid) for plotting
     def _centroid(h):
-        # geo_json=True -> [[lon, lat], …] already in the right order
-        boundary = h3.h3_to_geo_boundary(h, geo_json=True)
-        poly = Polygon(boundary)          # NO reversal!
+        # h3 v4: cell_to_boundary returns ((lat, lng), ...) – swap for Shapely
+        boundary = [(lng, lat) for lat, lng in h3.cell_to_boundary(h)]
+        poly = Polygon(boundary)
         return poly.centroid
 
 

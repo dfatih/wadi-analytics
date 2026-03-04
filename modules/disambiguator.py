@@ -118,6 +118,14 @@ def _build_value_index(concepts: dict) -> dict[str, list[tuple[str, str]]]:
     for motif in concepts.get("rockart_motifs", []):
         _add(motif, "Feature", "RockArtMotif")
 
+    # Kategorie-Varianten aus category_variants indexieren
+    for canonical, variants in concepts.get("category_variants", {}).items():
+        canon_lower = canonical.lower().strip()
+        if canon_lower in idx:
+            for variant in variants:
+                for node_type, prop in idx[canon_lower]:
+                    _add(variant, node_type, prop)
+
     # Daten-Tippfehler aus data_corrections ebenfalls indexieren
     for canonical, typos in concepts.get("data_corrections", {}).items():
         canon_lower = canonical.lower().strip()
@@ -142,6 +150,11 @@ def _build_all_values(concepts: dict) -> set[str]:
         vals.add(suf.lower())
     for motif in concepts.get("rockart_motifs", []):
         vals.add(motif.lower())
+    # Kategorie-Varianten als bekannte Werte registrieren
+    for canonical, variants in concepts.get("category_variants", {}).items():
+        vals.add(canonical.lower())
+        for variant in variants:
+            vals.add(variant.lower())
     # Daten-Tippfehler als bekannte Werte registrieren
     for canonical, typos in concepts.get("data_corrections", {}).items():
         vals.add(canonical.lower())
@@ -153,11 +166,14 @@ def _build_all_values(concepts: dict) -> set[str]:
 VALUE_INDEX = _build_value_index(concepts)
 ALL_KNOWN_VALUES = _build_all_values(concepts)
 
-# Direkte Tippfehler->Kanonisch-Map (fuer auto_correct_cypher)
-_DATA_CORRECTIONS_MAP: dict[str, str] = {}
+# Kanonische Aufloesung: Varianten + Tippfehler -> kanonischer Wert
+_CANONICAL_MAP: dict[str, str] = {}
+for _canonical, _variants in concepts.get("category_variants", {}).items():
+    for _variant in _variants:
+        _CANONICAL_MAP[_variant.lower()] = _canonical
 for _canonical, _typos in concepts.get("data_corrections", {}).items():
     for _typo in _typos:
-        _DATA_CORRECTIONS_MAP[_typo.lower()] = _canonical
+        _CANONICAL_MAP[_typo.lower()] = _canonical
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +274,9 @@ def _resolve_single(value: str, result: ResolvedQuery, *, confidence: str, origi
     if not locations:
         return
 
+    # Varianten/Tippfehler auf kanonischen Wert aufloesen
+    canonical = _CANONICAL_MAP.get(value.lower(), value)
+
     # Duplikate entfernen
     unique_locations = list(set(locations))
 
@@ -267,17 +286,16 @@ def _resolve_single(value: str, result: ResolvedQuery, *, confidence: str, origi
             original_text=original,
             node_type=node_type,
             property_name=prop,
-            resolved_values=[value],
+            resolved_values=[canonical],
             confidence=confidence,
         ))
     else:
-        # Mehrere moegliche Zuordnungen -- disambiguieren
         node_type, prop = _pick_best_location(value, unique_locations)
         result.terms.append(ResolvedTerm(
             original_text=original,
             node_type=node_type,
             property_name=prop,
-            resolved_values=[value],
+            resolved_values=[canonical],
             confidence=confidence,
         ))
         others = [(n, p) for n, p in unique_locations if (n, p) != (node_type, prop)]
@@ -298,8 +316,11 @@ def _pick_best_location(value: str, locations: list[tuple[str, str]]) -> tuple[s
     """
     v_lower = value.lower()
 
-    # Location-Begriffe sind nie Kategorien
+    # Location-Begriffe sind nie Kategorien -- Feature bevorzugen (granularer)
     if v_lower in LOCATION_TERMS:
+        for node_type, prop in locations:
+            if prop == "Location1" and node_type == "Feature":
+                return node_type, prop
         for node_type, prop in locations:
             if prop == "Location1":
                 return node_type, prop
@@ -358,11 +379,11 @@ def auto_correct_cypher(cypher: str) -> tuple[str, list[str]]:
         if not lit_lower or lit_lower in ("a", "b"):
             continue
         if lit_lower not in ALL_KNOWN_VALUES:
-            # Explizite Tippfehler-Korrektur aus data_corrections (hohe Prioritaet)
-            if lit_lower in _DATA_CORRECTIONS_MAP:
-                corrected = _DATA_CORRECTIONS_MAP[lit_lower]
+            # Kanonische Korrektur (Varianten + Tippfehler)
+            if lit_lower in _CANONICAL_MAP:
+                corrected = _CANONICAL_MAP[lit_lower]
                 cypher = cypher.replace(f"'{lit}'", f"'{corrected}'")
-                corrections.append(f"'{lit}' -> '{corrected}' (Datenfehler)")
+                corrections.append(f"'{lit}' -> '{corrected}'")
             else:
                 suggestion = _find_closest_match(lit_lower)
                 if suggestion:

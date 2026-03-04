@@ -57,8 +57,8 @@ logger = get_logger("debug")
 # ---------------------------------------------------------------------------
 RESEARCH_QUESTIONS: list[str] = [
     "Gibt es eine statistisch signifikante Kolokation zwischen Features mit Category = 'tumulus' und Location1 = 'ridge' und solchen mit Category IN ['habitation site', 'hut', 'settlement']?",
-    "Gibt es eine signifikante räumliche Autokorrelation von Sesshaftigkeitsindikatoren (categories: habitation site; hut; settlement) bzw. Mobilitätsindikatoren (shelter; stoneplace; camp site; fireplace; gravel platform)?",
-    "Gibt es statistisch signifikante Kolokationen von Sesshaftigkeits-  bzw. Mobilitätsindikatoren mit der Größe (Anzahl von Features) von Friedhöfen (categories: box graves; cleft burial; grave; dome grave; tumulus) und deren Abstand zu einander?",
+    "Gibt es eine signifikante räumliche Autokorrelation von Sesshaftigkeitsindikatoren (categories: habitation site; hut; settlement) bzw. Mobilitätsindikatoren (shelter; stoneplace; campsite; fireplace; gravel platform)?",
+    "Gibt es statistisch signifikante Kolokationen von Sesshaftigkeits-  bzw. Mobilitätsindikatoren mit der Größe (Anzahl von Features) von Friedhöfen (categories: box grave; cleft burial; grave; dome grave; tumulus) und deren Abstand zu einander?",
     "Gibt es eine statistisch signifikante Kolokation zwischen Sesshaftigkeitsindikatoren (categories: habitation site; hut; settlement) und Brunnen (category: well)?",
     "Gibt es eine statistisch signifikante Kolokation zwischen Mobilitäts- bzw. Sesshaftigkeitsindikatoren (categories: habitation site; hut; settlement) und der Feature-Category 'rock art'?"
 ]
