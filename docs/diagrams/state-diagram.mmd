@@ -1,0 +1,40 @@
+stateDiagram-v2
+    [*] --> Initializing
+
+    Initializing: Resolve terms, render<br/>system prompt, build context
+    Initializing --> WaitingForLLM : send initial request
+
+    WaitingForLLM: API call to<br/>OpenAI / Azure
+    WaitingForLLM --> ProcessingResponse : response received
+
+    ProcessingResponse --> Finished : finish_reason = stop
+    ProcessingResponse --> DispatchingTool : tool_call received
+
+    state DispatchingTool {
+        [*] --> CheckToolName
+
+        CheckToolName --> ExecutingCypher : run_cypher_query
+        CheckToolName --> ExecutingAnalysis : run_spatial_analysis
+        CheckToolName --> ToolError : unknown tool
+
+        ExecutingCypher: Validate, correct,<br/>execute Cypher
+        ExecutingCypher --> CypherDone : query result
+        ExecutingCypher --> ToolError : Neo4j error
+
+        ExecutingAnalysis: Run Python in<br/>subprocess (900s timeout)
+        ExecutingAnalysis --> AnalysisDone : stdout + summary JSON
+        ExecutingAnalysis --> ToolError : script error / timeout
+
+        CypherDone --> [*]
+        AnalysisDone --> [*]
+        ToolError --> [*]
+    }
+
+    DispatchingTool --> IterationCheck : tool result appended
+
+    IterationCheck: iteration < max (10)?
+    IterationCheck --> WaitingForLLM : yes
+    IterationCheck --> Finished : no, max reached
+
+    Finished: Assemble AgentResult<br/>(answer, tool_calls, metrics)
+    Finished --> [*]

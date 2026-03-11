@@ -27,6 +27,7 @@ from chat_models import (
     enforce_turn_limit,
 )
 from chat_renderer import render_chat_message, render_welcome
+from i18n import set_language, t
 from modules.disambiguator import drain_disambiguation_results
 from modules.helper import (
     drain_llm_results,
@@ -143,7 +144,7 @@ def _run_comparison_mode(user_input: str, selected_models: list[str]) -> ChatMes
     """Fuehrt dieselbe Frage durch mehrere Modelle und gibt eine ChatMessage zurueck."""
     now = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
     msg = ChatMessage(role="assistant", timestamp=now, is_comparison=True)
-    msg.text = f"Modellvergleich fuer: {user_input}"
+    msg.text = f"{t('comparison_for')} {user_input}"
 
     comparison_rows: list[dict] = []
 
@@ -242,7 +243,7 @@ def _persist_comparison(question: str, comparison_rows: list[dict]) -> Path:
     csv_path = COMPARISON_DIR / f"{ts}.csv"
     _persist_comparison_csv(csv_path, question, comparison_rows)
 
-    logger.info("Vergleich persistiert: %s (.json + .csv)", ts)
+    logger.info("Comparison persisted: %s (.json + .csv)", ts)
     return json_path
 
 
@@ -372,7 +373,7 @@ def _persist_query_result(question: str, assistant_msg: ChatMessage) -> Path:
     with open(json_path, "w", encoding="utf-8") as fh:
         json.dump(record, fh, indent=2, ensure_ascii=False)
 
-    logger.info("Query-Ergebnis persistiert: %s", json_path.name)
+    logger.info("Query result persisted: %s", json_path.name)
     return json_path
 
 
@@ -406,9 +407,12 @@ def run_chat() -> None:
         render_chat_message(msg)
 
     # Neue Eingabe verarbeiten
-    user_input = st.chat_input("Frage stellen ...")
+    user_input = st.chat_input(t("ask_question"))
     if not user_input:
         return
+
+    # Sprache erkennen und fuer UI-Labels setzen
+    set_language(user_input)
 
     # User-Nachricht speichern
     now = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
@@ -428,15 +432,15 @@ def run_chat() -> None:
         if comparison_mode:
             selected_models = st.session_state.get("comparison_models_selected", [])
             if not selected_models or len(selected_models) < 2:
-                st.warning("Bitte mindestens 2 Modelle im Vergleichsmodus auswaehlen.")
+                st.warning(t("select_2_models"))
                 return
-            with st.status("Modellvergleich wird durchgefuehrt...", expanded=True) as status:
+            with st.status(t("comparison_running"), expanded=True) as status:
                 assistant_msg = _run_comparison_mode(user_input, selected_models)
-                status.update(label="Vergleich abgeschlossen", state="complete", expanded=False)
+                status.update(label=t("comparison_done"), state="complete", expanded=False)
         else:
-            with st.status("Analyse wird durchgefuehrt...", expanded=True) as status:
+            with st.status(t("analysis_running"), expanded=True) as status:
                 assistant_msg = _run_normal_mode(user_input, selected_model)
-                status.update(label="Analyse abgeschlossen", state="complete", expanded=False)
+                status.update(label=t("analysis_done"), state="complete", expanded=False)
 
     # In History speichern
     st.session_state["chat_messages"].append(assistant_msg)

@@ -502,7 +502,7 @@ def run_single_question(
     drain_llm_results()
     drain_disambiguation_results()
 
-    data_path = str(result_dir / f"input_{q_id}.json")
+    data_path = (result_dir / f"input_{q_id}.json").as_posix()
     start = time.time()
 
     try:

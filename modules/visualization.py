@@ -11,6 +11,8 @@ import pydeck as pdk
 import streamlit as st
 from shapely.geometry import MultiPoint, Polygon
 
+from i18n import t
+
 
 # ------------------------------------------------------------------------------
 # Configuration
@@ -37,6 +39,21 @@ def _colourize(df: pd.DataFrame, attr: str | None) -> Dict[str, List[int]]:
     cmap = {u: _hash_colour(str(u)) for u in uniq}
     df["fill_color"] = df[attr].map(lambda v: cmap.get(v, [128, 128, 128, 180]))
     return cmap
+
+
+_LISA_QUADRANTS = {1: "HH (High-High)", 2: "LH (Low-High)", 3: "LL (Low-Low)", 4: "HL (High-Low)"}
+
+
+def _humanize_lisa_quadrants(gdf: gpd.GeoDataFrame) -> None:
+    """Replace numeric LISA quadrant codes (1–4) with readable labels in-place."""
+    for col in list(gdf.columns):
+        if col.endswith(("_lisa_q", "_q")) and set(gdf[col].dropna().unique()) <= {1, 2, 3, 4}:
+            gdf[col] = gdf[col].map(lambda v: _LISA_QUADRANTS.get(v, v))
+
+
+def _humanize_columns(gdf: gpd.GeoDataFrame) -> None:
+    """Rename cryptic LLM-generated column names to human-readable labels."""
+    _humanize_lisa_quadrants(gdf)
 
 
 def _optimal_zoom(bounds: tuple[float, float, float, float]) -> int:
@@ -173,31 +190,28 @@ _LAYER_FACTORY = {
     # "Arc": _arc_layer,
 }
 
-# Tooltip templates
-_TOOLTIPS = {
-    "Scatterplot": {
-        "html": """
-<b>Category</b>: {feature_Category}<br/>
-""",
-        "style": {"color": "white"},
-    },
-    "Hexagon": {
-        "html": """
-<b>N points</b>: {n_points}<br/>
-<b>Dominant category</b>: {dom_cat}<br/>
-<b>Mean I<sub>local</sub></b>: {I_local_mean:.2f}
-""",
-        "style": {"color": "white"},
-    },
-    "Column": {
-        "html": """
-<b>Category</b>: {feature_Category}<br/>
-<b>I<sub>local</sub></b>: {I_local}<br/>
-<b>sig95</b>: {sig95}
-""",
-        "style": {"color": "white"},
-    },
-}
+_SKIP_TOOLTIP_COLS = {"lon", "lat", "fill_color", "geometry", "_h3"}
+
+
+def _pretty_col(col: str) -> str:
+    """Turn a snake_case column name into a readable label."""
+    import re
+    # Strip common prefixes
+    col = re.sub(r"^(site|feature)_", "", col)
+    # Insert spaces before CamelCase transitions (e.g. SiteID → Site ID)
+    col = re.sub(r"([a-z])([A-Z])", r"\1 \2", col)
+    return col.replace("_", " ").strip().title()
+
+
+def _build_tooltip(df: pd.DataFrame, layer_type: str) -> dict | None:
+    """Build a dynamic tooltip from actual DataFrame columns."""
+    if layer_type == "Heatmap":
+        return None
+    cols = [c for c in df.columns if c not in _SKIP_TOOLTIP_COLS]
+    if not cols:
+        return None
+    lines = [f"<b>{_pretty_col(c)}</b>: {{{c}}}" for c in cols[:8]]
+    return {"html": "<br/>".join(lines), "style": {"color": "white"}}
 
 
 # ------------------------------------------------------------------------------
@@ -242,24 +256,29 @@ def show_kepler_map(folder: str = "results", preselect: str | None = None) -> No
     if "_binary" in gdf.columns and "sig95" not in gdf.columns:
         gdf.rename(columns={"_binary": "sig95"}, inplace=True)
 
+    # humanize column values (e.g. LISA quadrants 1→HH)
+    _humanize_columns(gdf)
+
     # layer choices
     layer_choices = ["Scatterplot", "Heatmap"]
     if "I_local" in gdf.columns:
         layer_choices.append("Column")
     if {"source_lon", "source_lat", "target_lon", "target_lat"}.issubset(gdf.columns):
         layer_choices.append("Arc")
-    layer_type = st.selectbox("Darstellungsart", layer_choices)
+    layer_type = st.selectbox(t("layer_type"), layer_choices)
 
     # colour mapping
-    colour_attr = (
-        st.selectbox(
-            "Farben nach Attribut",
-            [c for c in gdf.columns if gdf[c].dtype == "object" and gdf[c].nunique() < 50],
-            index=0,
-        )
-        if layer_type not in {"Heatmap", "Arc"}
-        else None
-    )
+    colour_attr: str | None = None
+    if layer_type not in {"Heatmap", "Arc"}:
+        colour_candidates = [
+            c for c in gdf.columns
+            if c not in {"lon", "lat", "fill_color", "geometry", "_h3"}
+            and gdf[c].nunique() < 50
+        ]
+        if colour_candidates:
+            colour_attr = st.selectbox(t("colour_by"), colour_candidates, index=0)
+        else:
+            st.caption(t("no_colour_options"))
     legend = _colourize(gdf, colour_attr)
 
     # special handling ---------------------------------------------------------
@@ -272,7 +291,7 @@ def show_kepler_map(folder: str = "results", preselect: str | None = None) -> No
     if layer_type == "Column":
         default_attr = "I_local" if "I_local" in gdf.columns else "sig95"
         height_attr = st.selectbox(
-            "Höhe nach Attribut",
+            t("height_by"),
             [c for c in gdf.columns if gdf[c].dtype != "object"],
             index=gdf.columns.get_loc(default_attr),
         )
@@ -295,7 +314,7 @@ def show_kepler_map(folder: str = "results", preselect: str | None = None) -> No
         pdk.Deck(
             layers=[layer],
             initial_view_state=view,
-            tooltip=_TOOLTIPS.get(layer_type),
+            tooltip=_build_tooltip(gdf, layer_type),
             map_provider="carto",
             map_style="dark",
         )
@@ -303,7 +322,7 @@ def show_kepler_map(folder: str = "results", preselect: str | None = None) -> No
 
     # legend -------------------------------------------------------------------
     if legend:
-        st.markdown(f"### 🎨 Legend: {colour_attr if layer_type != 'Hexagon' else 'dom_cat'}")
+        st.markdown(f"### {t('legend')}: {colour_attr if layer_type != 'Hexagon' else 'dom_cat'}")
         for val, rgba in legend.items():
             st.markdown(
                 f'<div style="display:flex;align-items:center">'

@@ -87,11 +87,17 @@ def _create_indexes(session) -> None:
 def _cleanup_before_import(session) -> None:
     """Raeumt migrierte Beziehungen/Knoten auf, damit ein Re-Import sauber laeuft."""
     for rel_type in ["HAS_ROCKART", "NEAR", "LOCATED_ON"]:
-        deleted = session.run(
-            f"MATCH ()-[r:{rel_type}]->() DELETE r RETURN count(r) AS deleted"
-        ).single()["deleted"]
-        if deleted:
-            log.info("Aufgeraeumt: %d %s-Beziehungen geloescht.", deleted, rel_type)
+        total = 0
+        while True:
+            deleted = session.run(
+                f"MATCH ()-[r:{rel_type}]->() WITH r LIMIT 50000 "
+                f"DELETE r RETURN count(r) AS deleted"
+            ).single()["deleted"]
+            total += deleted
+            if deleted == 0:
+                break
+        if total:
+            log.info("Aufgeraeumt: %d %s-Beziehungen geloescht.", total, rel_type)
 
     deleted = session.run(
         "MATCH (m:RockArtMotif) DETACH DELETE m RETURN count(m) AS deleted"

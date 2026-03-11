@@ -1,23 +1,23 @@
-"""Karten-Ansicht fuer Geodaten-Visualisierung.
+"""Map view for geodata visualisation.
 
-Zeigt GeoJSON-Ergebnisse aus der Chat-Analyse auf einer interaktiven Karte.
-Lazy-Import von modules.visualization um schwere Geo-Abhaengigkeiten
-(geopandas, pydeck, h3) erst beim Seitenwechsel zu laden.
+Shows GeoJSON results from the chat analysis on an interactive map.
+Lazy-imports modules.visualization to defer heavy geo dependencies
+(geopandas, pydeck, h3) until the page is accessed.
 """
 import streamlit as st
 
 
 def show_map_view() -> None:
-    """Rendert die Geodaten-Visualisierung."""
+    """Renders the geodata visualisation."""
     import modules.visualization as visualization
 
-    st.header("Geodaten-Visualisierung")
+    st.header("Geodata Visualisation")
 
     default = st.session_state.get("last_geojson")
 
     if default:
-        st.caption("GeoJSON vom Chat uebernommen.")
+        st.caption("GeoJSON loaded from chat.")
     else:
-        st.caption("Waehle eine Datei oder fuehre zuerst eine Analyse im Chat durch.")
+        st.caption("Select a file or run an analysis in the chat first.")
 
     visualization.show_kepler_map(preselect=default)

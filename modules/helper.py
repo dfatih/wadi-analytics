@@ -26,7 +26,7 @@ from modules.logger import get_logger, log_result
 
 logger = get_logger("debug")
 
-CLIENT = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+CLIENT = OpenAI(api_key=os.getenv("OPENAI_API_KEY"), max_retries=5)
 
 
 # ---------------------------------------------------------------------------

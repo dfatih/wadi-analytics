@@ -11,6 +11,7 @@ import streamlit as st
 
 from chat_models import ChatMessage, MetricsRecord, StepRecord
 from css import _safe
+from i18n import t
 
 
 # ---------------------------------------------------------------------------
@@ -59,9 +60,9 @@ def render_chat_message(msg: ChatMessage) -> None:
 # ---------------------------------------------------------------------------
 def _render_plan_overview(plan_steps: list[dict]) -> None:
     """Rendert die Uebersicht eines Multi-Step-Analyseplans."""
-    with st.expander("Analyseplan", expanded=True):
+    with st.expander(t("analysis_plan"), expanded=True):
         for step in plan_steps:
-            dep = f" (nach Schritt {step['depends_on']})" if step.get("depends_on") is not None else ""
+            dep = f" ({t('after_step')} {step['depends_on']})" if step.get("depends_on") is not None else ""
             cond = f" [{step['condition']}]" if step.get("condition", "none") != "none" else ""
             badge_cls = "badge-cypher" if step.get("decision_type") == "cypher" else "badge-python"
 
@@ -82,7 +83,7 @@ def _render_plan_overview(plan_steps: list[dict]) -> None:
 def _render_step(record: StepRecord, msg_timestamp: str) -> None:
     """Rendert einen einzelnen Analyseschritt innerhalb einer Assistant-Nachricht."""
     if record.skipped:
-        st.info(f"Schritt {record.step_index} uebersprungen: {record.skip_reason}")
+        st.info(f"{t('step')} {record.step_index} {t('step_skipped')}: {record.skip_reason}")
         return
 
     # Step-Header mit Typ-Badge und Analyse-Typ-Label
@@ -95,14 +96,14 @@ def _render_step(record: StepRecord, msg_timestamp: str) -> None:
         )
     # Tool-basierte Schritte: sub_question ist der Tool-Name -> schoener darstellen
     _TOOL_LABELS = {
-        "run_cypher_query": "Datenabfrage",
-        "run_spatial_analysis": "Raeumliche Analyse",
+        "run_cypher_query": t("data_query"),
+        "run_spatial_analysis": t("spatial_analysis"),
     }
     header_text = _TOOL_LABELS.get(record.sub_question, record.sub_question)
     st.markdown(
         f'<div class="step-card">'
         f'<div class="step-header">'
-        f'Schritt {record.step_index}: {_safe(header_text)} '
+        f'{t("step")} {record.step_index}: {_safe(header_text)} '
         f'<span class="step-type-badge {badge_cls}">{_safe(record.decision_type)}</span>'
         f'{analysis_label}'
         f'</div></div>',
@@ -115,7 +116,7 @@ def _render_step(record: StepRecord, msg_timestamp: str) -> None:
 
     # Cypher-Vorschau
     if record.cypher_preview and record.decision_type == "cypher":
-        with st.expander("Ergebnisvorschau", expanded=False):
+        with st.expander(t("result_preview"), expanded=False):
             try:
                 st.json(json.loads(record.cypher_preview), expanded=False)
             except (json.JSONDecodeError, TypeError):
@@ -123,13 +124,13 @@ def _render_step(record: StepRecord, msg_timestamp: str) -> None:
 
     # stdout (falls vorhanden)
     if record.stdout and record.stdout.strip():
-        with st.expander("Ausgabe (stdout)", expanded=False):
+        with st.expander(t("output_stdout"), expanded=False):
             st.code(record.stdout.strip(), language="text")
 
     # stderr (nur bei echten Fehlern)
     if record.stderr and record.stderr.strip():
         if any(kw in record.stderr for kw in ["Traceback", "Error", "Exception"]):
-            with st.expander("Fehlerausgabe (stderr)", expanded=False):
+            with st.expander(t("error_stderr"), expanded=False):
                 st.code(record.stderr.strip(), language="text")
 
     # Internals (Code, Queries, Disambiguation)
@@ -143,7 +144,7 @@ def _render_step(record: StepRecord, msg_timestamp: str) -> None:
             st.caption(f"GeoJSON: {Path(record.geojson_path).name}")
         with col2:
             if st.button(
-                "Auf Karte anzeigen",
+                t("show_on_map"),
                 key=f"map_{msg_timestamp}_{record.step_index}",
             ):
                 st.session_state["last_geojson"] = record.geojson_path
@@ -164,29 +165,29 @@ def _render_internals(record: StepRecord) -> None:
     if not has_content:
         return
 
-    with st.expander("Internals", expanded=False):
+    with st.expander(t("internals"), expanded=False):
         # Disambiguation
         if record.disambiguation:
             if record.disambiguation.terms:
-                st.markdown("**Begriffsaufloesung:**")
-                for t in record.disambiguation.terms:
-                    vals = ", ".join(f"`{v}`" for v in t.get("resolved_values", []))
+                st.markdown(f"**{t('term_resolution')}**")
+                for term in record.disambiguation.terms:
+                    vals = ", ".join(f"`{v}`" for v in term.get("resolved_values", []))
                     st.markdown(
-                        f"- *{t.get('original_text', '?')}* -> "
-                        f"{t.get('node_type', '?')}.{t.get('property_name', '?')} = {vals} "
-                        f"({t.get('confidence', '?')})"
+                        f"- *{term.get('original_text', '?')}* -> "
+                        f"{term.get('node_type', '?')}.{term.get('property_name', '?')} = {vals} "
+                        f"({term.get('confidence', '?')})"
                     )
             if record.disambiguation.notes:
-                st.markdown("**Disambiguierung:**")
+                st.markdown(f"**{t('disambiguation')}**")
                 for note in record.disambiguation.notes:
                     st.markdown(f"- {note}")
 
         # Code / Query
         if record.cypher_query:
-            st.markdown("**Cypher:**")
+            st.markdown(f"**{t('cypher')}**")
             st.code(record.cypher_query, language="cypher")
         if record.python_code:
-            st.markdown("**Python-Code:**")
+            st.markdown(f"**{t('python_code')}**")
             st.code(record.python_code, language="python")
 
 
@@ -198,10 +199,10 @@ def _render_metrics_bar(metrics: MetricsRecord) -> None:
     models = _safe(", ".join(metrics.models_used)) if metrics.models_used else "?"
     st.markdown(
         f'<div class="metrics-bar">'
-        f'<span class="metric-badge">Tokens <span class="value">{metrics.total_tokens:,}</span></span>'
-        f'<span class="metric-badge">Kosten <span class="value">${metrics.cost_usd:.4f}</span></span>'
-        f'<span class="metric-badge">Dauer <span class="value">{metrics.duration_seconds:.1f}s</span></span>'
-        f'<span class="metric-badge">Modell <span class="value">{models}</span></span>'
+        f'<span class="metric-badge">{t("tokens")} <span class="value">{metrics.total_tokens:,}</span></span>'
+        f'<span class="metric-badge">{t("cost")} <span class="value">${metrics.cost_usd:.4f}</span></span>'
+        f'<span class="metric-badge">{t("duration")} <span class="value">{metrics.duration_seconds:.1f}s</span></span>'
+        f'<span class="metric-badge">{t("model")} <span class="value">{models}</span></span>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -212,7 +213,7 @@ def _render_metrics_bar(metrics: MetricsRecord) -> None:
 # ---------------------------------------------------------------------------
 def _render_comparison(comparison_table: list[dict]) -> None:
     """Rendert die Vergleichstabelle und Charts fuer den Comparison-Modus."""
-    st.markdown('<div class="comparison-header">Vergleichstabelle</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="comparison-header">{t("comparison_table")}</div>', unsafe_allow_html=True)
 
     table_data = []
     models = []
@@ -229,11 +230,11 @@ def _render_comparison(comparison_table: list[dict]) -> None:
         durations_list.append(m.get("duration_seconds", 0))
 
         table_data.append({
-            "Modell": model,
-            "Erfolg": "Ja" if row.get("success") else "Nein",
-            "Tokens": m.get("total_tokens", 0),
-            "Kosten ($)": f"{m.get('cost_usd', 0):.4f}",
-            "Dauer (s)": f"{m.get('duration_seconds', 0):.1f}",
+            t("model"): model,
+            t("success"): t("yes") if row.get("success") else t("no"),
+            t("tokens"): m.get("total_tokens", 0),
+            t("cost_usd"): f"{m.get('cost_usd', 0):.4f}",
+            t("duration_s"): f"{m.get('duration_seconds', 0):.1f}",
         })
 
     st.table(table_data)
@@ -242,18 +243,18 @@ def _render_comparison(comparison_table: list[dict]) -> None:
     if len(models) >= 2:
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown("**Tokens**")
+            st.markdown(f"**{t('tokens')}**")
             st.bar_chart(dict(zip(models, tokens_list)))
         with col2:
-            st.markdown("**Kosten ($)**")
+            st.markdown(f"**{t('cost_usd')}**")
             st.bar_chart(dict(zip(models, costs_list)))
         with col3:
-            st.markdown("**Dauer (s)**")
+            st.markdown(f"**{t('duration_s')}**")
             st.bar_chart(dict(zip(models, durations_list)))
 
     # Antworten nebeneinander
     if len(comparison_table) >= 2:
-        st.markdown("**Antworten im Vergleich:**")
+        st.markdown(f"**{t('answers_comparison')}**")
         cols = st.columns(len(comparison_table))
         for col, row in zip(cols, comparison_table):
             with col:
@@ -262,11 +263,11 @@ def _render_comparison(comparison_table: list[dict]) -> None:
                 if not explanation and not row.get("success"):
                     stderr = row.get("stderr", "")
                     if stderr:
-                        explanation = f"Analyse fehlgeschlagen:\n\n`{stderr[:500]}`"
+                        explanation = f"{t('analysis_failed')}\n\n`{stderr[:500]}`"
                     else:
-                        explanation = "Analyse fehlgeschlagen (keine Ausgabe)."
+                        explanation = t("analysis_failed_no_output")
                 elif not explanation:
-                    explanation = "Keine Antwort."
+                    explanation = t("no_answer")
                 st.markdown(explanation[:1000])
 
 
@@ -277,12 +278,10 @@ def render_welcome() -> None:
     """Zeigt eine Willkommensnachricht wenn der Chat leer ist."""
     st.markdown(
         '<div class="welcome-box">'
-        "<h2>Wadi Abu Dom</h2>"
-        "<p>Archaeologische Analyse -- stelle eine Frage um zu beginnen.</p>"
-        "<p style='font-size: 0.82rem; margin-top: 1rem;'>"
-        "Beispiele: <em>Welche Feature-Kategorien gibt es?</em> | "
-        "<em>Gibt es raeumliche Cluster bei Graebern?</em> | "
-        "<em>Wie verteilen sich Siedlungen entlang des Wadi?</em>"
+        f"<h2>{t('welcome_title')}</h2>"
+        f"<p>{t('welcome_text')}</p>"
+        f"<p style='font-size: 0.82rem; margin-top: 1rem;'>"
+        f"{t('welcome_examples')}"
         "</p></div>",
         unsafe_allow_html=True,
     )

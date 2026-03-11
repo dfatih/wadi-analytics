@@ -17,11 +17,11 @@ import argparse
 import csv
 import json
 import math
+import os
 import re
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -32,6 +32,17 @@ sys.path.insert(0, str(PROJECT_ROOT / "app"))
 
 from dotenv import load_dotenv
 load_dotenv(PROJECT_ROOT / ".env")
+
+# Neo4j-URI Override VOR dem Import der Module setzen
+_neo4j_uri = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
+for arg in sys.argv:
+    if arg.startswith("--neo4j-uri="):
+        _neo4j_uri = arg.split("=", 1)[1]
+    elif arg == "--neo4j-uri":
+        idx = sys.argv.index(arg)
+        if idx + 1 < len(sys.argv):
+            _neo4j_uri = sys.argv[idx + 1]
+os.environ["NEO4J_URI"] = _neo4j_uri
 
 import numpy as np
 
@@ -236,6 +247,32 @@ def _load_existing_runs(result_dir: Path) -> list[dict]:
         return []
 
 
+def _completed_run_keys(runs: list[dict]) -> set[tuple[str, str, int]]:
+    """Erstellt ein Set von (model, question, run_index) fuer abgeschlossene Runs."""
+    return {(r["model"], r["question"], r["run_index"]) for r in runs}
+
+
+def _find_latest_result_dir(output_dir: str) -> Path | None:
+    """Findet das neueste Ergebnis-Verzeichnis mit runs.json."""
+    base = Path(output_dir)
+    if not base.exists():
+        return None
+    candidates = sorted(
+        [d for d in base.iterdir() if d.is_dir() and (d / "runs.json").exists()],
+        key=lambda d: d.name,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+def _save_progress(
+    result_dir: Path, all_runs: list[dict], ts: str, models: list[str], n_runs: int,
+) -> None:
+    """Speichert den aktuellen Fortschritt (nach jedem Run)."""
+    _save_runs_csv(result_dir / "runs.csv", all_runs)
+    _save_runs_json(result_dir / "runs.json", all_runs, ts, models, n_runs)
+
+
 def _run_single(
     question: str,
     model_name: str,
@@ -248,16 +285,16 @@ def _run_single(
 
     Verwendet run_agent() fuer den agentischen Loop.
     Alle LLM/Disambiguierungs-Puffer sind thread-lokal, daher ist diese
-    Funktion sicher fuer den Einsatz in ThreadPoolExecutor.
+    Funktion sicher fuer den Einsatz in parallelen Threads.
     """
     _tprint(f"\n  [{label}] {model_name} -- Run {run_idx + 1}")
 
     drain_llm_results()
     drain_disambiguation_results()
 
-    data_path = str(
+    data_path = (
         result_dir / f"input_{model_name}_{q_idx}_run{run_idx}.json"
-    )
+    ).as_posix()
 
     # Agentischen Loop ausfuehren
     result = run_agent(question, model=model_name, data_path=data_path)
@@ -306,8 +343,15 @@ def run_benchmark(
     output_dir: str = "results/benchmark",
     append_to: str | None = None,
     parallel: bool = False,
+    min_delay: int = 60,
+    auto_resume: bool = True,
 ) -> Path:
     """Fuehrt den vollstaendigen Benchmark aus.
+
+    Automatisches Resume: Bereits abgeschlossene (model, question, run_index)-
+    Kombinationen werden uebersprungen. Fortschritt wird nach jedem Run
+    gespeichert, sodass ein Abbruch (Ctrl+C, Fehler) jederzeit moeglich ist
+    und der naechste Aufruf dort weitermacht.
 
     Args:
         questions: Liste der Forschungsfragen.
@@ -315,11 +359,15 @@ def run_benchmark(
         n_runs: Anzahl Durchlaeufe pro Modell pro Frage.
         output_dir: Ausgabeverzeichnis.
         append_to: Pfad zu bestehendem Ergebnis-Verzeichnis (fuer Nachtrag).
-        parallel: Wenn True, werden Modelle pro Frage parallel ausgefuehrt.
+        parallel: Wenn True, bekommt jedes Modell einen eigenen Thread.
+        min_delay: Mindestabstand in Sekunden zwischen Runs desselben Modells.
+        auto_resume: Wenn True, wird das neueste Verzeichnis automatisch fortgesetzt.
 
     Returns:
         Pfad zum Ergebnis-Verzeichnis.
     """
+    # --- Verzeichnis bestimmen (Resume oder Neu) ---
+    existing_runs: list[dict] = []
     if append_to:
         result_dir = Path(append_to)
         if not result_dir.exists():
@@ -327,69 +375,152 @@ def run_benchmark(
             sys.exit(1)
         ts = result_dir.name
         existing_runs = _load_existing_runs(result_dir)
-        print(f"Append-Modus: {len(existing_runs)} bestehende Runs geladen aus {result_dir}")
+    elif auto_resume:
+        latest = _find_latest_result_dir(output_dir)
+        if latest:
+            result_dir = latest
+            ts = result_dir.name
+            existing_runs = _load_existing_runs(result_dir)
+        else:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            result_dir = Path(output_dir) / ts
+            result_dir.mkdir(parents=True, exist_ok=True)
     else:
         ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         result_dir = Path(output_dir) / ts
         result_dir.mkdir(parents=True, exist_ok=True)
-        existing_runs = []
 
     all_runs: list[dict] = list(existing_runs)
-    total = len(questions) * len(models) * n_runs
+    completed = _completed_run_keys(existing_runs)
+    total_per_model = len(questions) * n_runs
+    total_all = total_per_model * len(models)
+
+    if existing_runs:
+        print(f"  Resume:       {len(existing_runs)}/{total_all} Runs vorhanden ({result_dir})")
+        if len(completed) >= total_all:
+            print("  Alle Runs bereits abgeschlossen!")
+            # Trotzdem Aggregation/Friedman neu berechnen
+            _finalize_results(result_dir, all_runs, ts, models, n_runs, existing_runs)
+            return result_dir
+
+    # Hilfsfunktion: Run ausfuehren + inkrementell speichern
+    save_lock = threading.Lock()
+
+    def _run_and_save(
+        question: str, model_name: str, run_idx: int, q_idx: int, label: str,
+    ) -> bool:
+        """Fuehrt einen Run aus, speichert sofort. Gibt True zurueck wenn ausgefuehrt."""
+        key = (model_name, question, run_idx)
+        if key in completed:
+            _tprint(f"    [{label}] Uebersprungen (bereits vorhanden)")
+            return False
+
+        t_start = time.monotonic()
+        try:
+            record = _run_single(
+                question=question,
+                model_name=model_name,
+                run_idx=run_idx,
+                q_idx=q_idx,
+                result_dir=result_dir,
+                label=label,
+            )
+            with save_lock:
+                all_runs.append(record)
+                completed.add(key)
+                _save_progress(result_dir, all_runs, ts, models, n_runs)
+            return True
+        except Exception as exc:
+            _tprint(f"    FEHLER [{label}]: {exc}")
+            logger.exception("Benchmark-Run fehlgeschlagen: %s", exc)
+            return False
 
     if parallel:
-        print(f"  Modus: PARALLEL ({len(models)} Modelle gleichzeitig)")
+        # Jedes Modell bekommt einen eigenen Daemon-Thread.
+        # Runs desselben Modells laufen sequentiell mit min_delay Pause.
+        # Daemon-Threads + Event erlauben sofortigen Abbruch mit Ctrl+C.
+        _tprint(f"  Modus: PARALLEL ({len(models)} Modell-Threads, {min_delay}s min. Abstand)")
 
-    for q_idx, question in enumerate(questions):
-        print(f"\n{'='*60}")
-        print(f"Frage {q_idx + 1}/{len(questions)}: {question[:80]}")
-        print(f"{'='*60}")
+        shutdown_event = threading.Event()
 
-        # Alle (model, run_idx)-Kombinationen fuer diese Frage
-        tasks = [
-            (model_name, run_idx)
-            for model_name in models
-            for run_idx in range(n_runs)
-        ]
+        def _run_model_thread(model_name: str) -> None:
+            run_counter = 0
+            for q_idx, question in enumerate(questions):
+                for run_idx in range(n_runs):
+                    if shutdown_event.is_set():
+                        return
+                    run_counter += 1
+                    label = f"{model_name} Q{q_idx+1} R{run_idx+1} [{run_counter}/{total_per_model}]"
 
-        if parallel:
-            with ThreadPoolExecutor(max_workers=len(models)) as executor:
-                futures = {}
+                    key = (model_name, question, run_idx)
+                    if key in completed:
+                        _tprint(f"    [{label}] Uebersprungen (bereits vorhanden)")
+                        continue
+
+                    _tprint(f"\n  [{label}] Start")
+                    t_start = time.monotonic()
+                    _run_and_save(question, model_name, run_idx, q_idx, label)
+
+                    # Mindestabstand einhalten (TPM/RPM-Schutz)
+                    elapsed = time.monotonic() - t_start
+                    wait = min_delay - elapsed
+                    if wait > 0 and run_counter < total_per_model:
+                        _tprint(f"    [{model_name}] Warte {wait:.0f}s (Rate-Limit-Schutz)")
+                        shutdown_event.wait(timeout=wait)
+
+        threads: list[threading.Thread] = []
+        for m in models:
+            t = threading.Thread(target=_run_model_thread, args=(m,), daemon=True)
+            t.start()
+            threads.append(t)
+
+        try:
+            for t in threads:
+                while t.is_alive():
+                    t.join(timeout=0.5)
+        except KeyboardInterrupt:
+            _tprint("\n\nAbbruch! Warte auf laufende Runs...")
+            shutdown_event.set()
+            for t in threads:
+                t.join(timeout=5)
+            _tprint(f"Abgebrochen. {len(all_runs) - len(existing_runs)} neue Runs gespeichert.")
+    else:
+        try:
+            for q_idx, question in enumerate(questions):
+                print(f"\n{'='*60}")
+                print(f"Frage {q_idx + 1}/{len(questions)}: {question[:80]}")
+                print(f"{'='*60}")
+
+                tasks = [
+                    (model_name, run_idx)
+                    for model_name in models
+                    for run_idx in range(n_runs)
+                ]
                 for i, (model_name, run_idx) in enumerate(tasks):
                     label = f"F{q_idx+1} {i+1}/{len(tasks)}"
-                    fut = executor.submit(
-                        _run_single,
-                        question=question,
-                        model_name=model_name,
-                        run_idx=run_idx,
-                        q_idx=q_idx,
-                        result_dir=result_dir,
-                        label=label,
-                    )
-                    futures[fut] = (model_name, run_idx)
+                    _run_and_save(question, model_name, run_idx, q_idx, label)
+        except KeyboardInterrupt:
+            print(f"\n\nAbgebrochen. {len(all_runs) - len(existing_runs)} neue Runs gespeichert.")
 
-                for fut in as_completed(futures):
-                    try:
-                        record = fut.result()
-                        all_runs.append(record)
-                    except Exception as exc:
-                        model_name, run_idx = futures[fut]
-                        _tprint(f"    FEHLER {model_name} Run {run_idx}: {exc}")
-                        logger.exception("Benchmark-Run fehlgeschlagen: %s", exc)
-        else:
-            for i, (model_name, run_idx) in enumerate(tasks):
-                label = f"F{q_idx+1} {i+1}/{len(tasks)}"
-                record = _run_single(
-                    question=question,
-                    model_name=model_name,
-                    run_idx=run_idx,
-                    q_idx=q_idx,
-                    result_dir=result_dir,
-                    label=label,
-                )
-                all_runs.append(record)
+    # --- Finale Ergebnisse ---
+    _finalize_results(result_dir, all_runs, ts, models, n_runs, existing_runs)
+    return result_dir
 
-    # --- Ergebnisse speichern ---
+
+def _finalize_results(
+    result_dir: Path,
+    all_runs: list[dict],
+    ts: str,
+    models: list[str],
+    n_runs: int,
+    existing_runs: list[dict],
+) -> None:
+    """Speichert finale Ergebnisse inkl. Aggregation und Friedman-Test."""
+    n_new = len(all_runs) - len(existing_runs)
+    if not all_runs:
+        print("\nKeine Ergebnisse zum Speichern.")
+        return
+
     all_models = sorted({r["model"] for r in all_runs})
     _save_runs_csv(result_dir / "runs.csv", all_runs)
     _save_runs_json(result_dir / "runs.json", all_runs, ts, all_models, n_runs)
@@ -401,9 +532,11 @@ def run_benchmark(
         result_dir / "friedman_summary.json", friedman_summary, ts, all_models, n_runs,
     )
 
+    total = len({r["model"] for r in all_runs}) * len({r["question"] for r in all_runs}) * n_runs
+    status = "abgeschlossen" if len(all_runs) >= total else "teilweise"
     print(f"\n{'='*60}")
-    print(f"Benchmark abgeschlossen. Ergebnisse: {result_dir}")
-    print(f"  runs.csv            -- {len(all_runs)} Einzel-Durchlaeufe")
+    print(f"Benchmark {status}. Ergebnisse: {result_dir}")
+    print(f"  runs.csv            -- {len(all_runs)} Einzel-Durchlaeufe ({n_new} neu)")
     print(f"  runs.json           -- Vollstaendige Daten")
     print(f"  aggregated.csv      -- Median-Werte pro Modell/Frage")
     print(f"  friedman_summary.json -- Statistische Tests")
@@ -590,7 +723,19 @@ def main() -> None:
     )
     parser.add_argument(
         "--parallel", action="store_true", default=False,
-        help="Modelle parallel ausfuehren (default: sequentiell)",
+        help="Jedes Modell bekommt einen eigenen Thread (default: sequentiell)",
+    )
+    parser.add_argument(
+        "--min-delay", type=int, default=60,
+        help="Mindestabstand in Sekunden zwischen Runs desselben Modells (default: 60)",
+    )
+    parser.add_argument(
+        "--no-resume", action="store_true", default=False,
+        help="Neuen Benchmark starten statt den letzten fortzusetzen",
+    )
+    parser.add_argument(
+        "--neo4j-uri", type=str, default=None,
+        help="Neo4j-URI (default: aus .env)",
     )
     args = parser.parse_args()
 
@@ -601,12 +746,16 @@ def main() -> None:
 
     models = args.models if args.models else _get_all_model_names()
     mode = "parallel" if args.parallel else "sequentiell"
+    total = len(RESEARCH_QUESTIONS) * len(models) * args.n_runs
     print(f"Benchmark-Konfiguration:")
     print(f"  Modelle:      {models}")
     print(f"  Fragen:       {len(RESEARCH_QUESTIONS)}")
     print(f"  Runs/Modell:  {args.n_runs}")
-    print(f"  Gesamt-Runs:  {len(RESEARCH_QUESTIONS) * len(models) * args.n_runs}")
+    print(f"  Gesamt-Runs:  {total}")
     print(f"  Modus:        {mode}")
+    if args.parallel:
+        print(f"  Min. Abstand: {args.min_delay}s")
+    print(f"  Neo4j:        {os.environ['NEO4J_URI']}")
     print(f"  Ausgabe:      {args.output_dir}")
 
     run_benchmark(
@@ -616,6 +765,8 @@ def main() -> None:
         output_dir=args.output_dir,
         append_to=args.append_to,
         parallel=args.parallel,
+        min_delay=args.min_delay,
+        auto_resume=not args.no_resume,
     )
 
 

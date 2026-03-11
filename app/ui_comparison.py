@@ -1,9 +1,9 @@
-"""Dashboard fuer historische Modellvergleiche.
+"""Dashboard for historical model comparisons.
 
-Liest gespeicherte Vergleichsergebnisse aus results/comparisons/ und
-zeigt sie als Tabellen und Balkendiagramme fuer die Seite-an-Seite-Bewertung.
-Erweitert um Per-Call-Breakdown, statistische Ergebnisse, Code-Vergleich
-und CSV-Download fuer Thesis-Plots.
+Reads saved comparison results from results/comparisons/ and displays
+them as tables and bar charts for side-by-side evaluation.
+Includes per-call breakdown, statistical results, code comparison
+and CSV download for thesis plots.
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ COMPARISON_DIR = Path("results") / "comparisons"
 
 
 def _load_comparisons() -> list[dict]:
-    """Laedt alle Vergleichs-JSONs, neueste zuerst."""
+    """Loads all comparison JSONs, newest first."""
     if not COMPARISON_DIR.exists():
         return []
     files = sorted(COMPARISON_DIR.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)
@@ -34,12 +34,12 @@ def _load_comparisons() -> list[dict]:
             with open(f, encoding="utf-8") as fh:
                 comparisons.append(json.load(fh))
         except Exception as exc:
-            logger.warning("Vergleich %s konnte nicht geladen werden: %s", f, exc)
+            logger.warning("Could not load comparison %s: %s", f, exc)
     return comparisons
 
 
 def _build_aggregate_csv(comparisons: list[dict]) -> str:
-    """Erstellt eine aggregierte CSV ueber alle Vergleiche fuer Thesis-Plots."""
+    """Creates an aggregated CSV across all comparisons for thesis plots."""
     buf = io.StringIO()
     fieldnames = [
         "timestamp", "question", "model", "success", "analysis_type",
@@ -86,59 +86,57 @@ def _build_aggregate_csv(comparisons: list[dict]) -> str:
 
 
 def _render_per_call_breakdown(results: list[dict]) -> None:
-    """Rendert die Per-LLM-Call-Aufschluesselung pro Modell."""
+    """Renders per-LLM-call breakdown per model."""
     has_per_call = any(row.get("per_call_metrics") for row in results)
     if not has_per_call:
         return
 
-    st.markdown("**Aufschluesselung nach LLM-Aufruf:**")
+    st.markdown("**Breakdown by LLM Call:**")
     rows = []
     for result in results:
         model = result.get("model", "?")
         for call in result.get("per_call_metrics", []):
             rows.append({
-                "Modell": model,
-                "Funktion": call.get("function", "?"),
+                "Model": model,
+                "Function": call.get("function", "?"),
                 "Prompt": call.get("prompt_tokens", 0),
                 "Completion": call.get("completion_tokens", 0),
                 "Reasoning": call.get("reasoning_tokens", 0),
                 "Tokens": call.get("total_tokens", 0),
-                "Kosten ($)": f"{call.get('cost_usd', 0):.4f}",
-                "Dauer (s)": f"{call.get('duration_seconds', 0):.1f}",
+                "Cost ($)": f"{call.get('cost_usd', 0):.4f}",
+                "Duration (s)": f"{call.get('duration_seconds', 0):.1f}",
             })
     if rows:
         st.table(rows)
 
 
 def _render_statistical_results(results: list[dict]) -> None:
-    """Rendert statistische Ergebnisse (Moran's I, p-Wert) pro Modell."""
+    """Renders statistical results (Moran's I, p-value) per model."""
     has_stats = any(row.get("summary_json") for row in results)
     if not has_stats:
         return
 
-    st.markdown("**Statistische Ergebnisse:**")
+    st.markdown("**Statistical Results:**")
     rows = []
     for result in results:
         model = result.get("model", "?")
         sj = result.get("summary_json") or {}
-        # Top-level Ergebnisse
         if "moran_I" in sj:
             rows.append({
-                "Modell": model,
-                "Gruppe": "-",
+                "Model": model,
+                "Group": "-",
                 "Moran's I": f"{sj['moran_I']:.6f}" if sj["moran_I"] is not None else "NaN",
-                "p-Wert": f"{sj.get('p_value', 'NaN'):.6f}" if sj.get("p_value") is not None else "NaN",
+                "p-value": f"{sj.get('p_value', 'NaN'):.6f}" if sj.get("p_value") is not None else "NaN",
                 "n": sj.get("n", "?"),
             })
         else:
-            # Verschachtelte Gruppen-Ergebnisse
             for group, vals in sj.items():
                 if isinstance(vals, dict) and "moran_I" in vals:
                     rows.append({
-                        "Modell": model,
-                        "Gruppe": group,
+                        "Model": model,
+                        "Group": group,
                         "Moran's I": f"{vals['moran_I']:.6f}" if vals["moran_I"] is not None else "NaN",
-                        "p-Wert": f"{vals.get('p_value', 'NaN'):.6f}" if vals.get("p_value") is not None else "NaN",
+                        "p-value": f"{vals.get('p_value', 'NaN'):.6f}" if vals.get("p_value") is not None else "NaN",
                         "n": vals.get("n", "?"),
                     })
     if rows:
@@ -146,26 +144,26 @@ def _render_statistical_results(results: list[dict]) -> None:
 
 
 def _render_code_comparison(results: list[dict]) -> None:
-    """Rendert generierten Code nebeneinander fuer Modellvergleich."""
+    """Renders generated code side by side for model comparison."""
     code_key = "python_code" if any(r.get("python_code") for r in results) else "cypher_query"
     has_code = any(r.get(code_key) for r in results)
     if not has_code:
         return
 
     lang = "python" if code_key == "python_code" else "cypher"
-    label = "Python-Code" if code_key == "python_code" else "Cypher-Query"
+    label = "Python Code" if code_key == "python_code" else "Cypher Query"
 
-    with st.expander(f"Generierter {label} im Vergleich"):
+    with st.expander(f"Generated {label} Comparison"):
         cols = st.columns(len(results))
         for col, row in zip(cols, results):
             with col:
                 st.markdown(f"**{row.get('model', '?')}**")
-                code = row.get(code_key, "Kein Code")
+                code = row.get(code_key, "No code")
                 st.code(code[:5000], language=lang)
 
 
 def _render_aggregate_stats(comparisons: list[dict]) -> None:
-    """Rendert aggregierte Statistiken ueber alle Vergleiche."""
+    """Renders aggregate statistics across all comparisons."""
     model_stats: dict[str, dict] = defaultdict(lambda: {
         "count": 0, "successes": 0,
         "total_tokens": 0, "cost_usd": 0.0, "duration_seconds": 0.0,
@@ -185,48 +183,46 @@ def _render_aggregate_stats(comparisons: list[dict]) -> None:
     if not model_stats:
         return
 
-    st.subheader("Aggregierte Statistik")
+    st.subheader("Aggregate Statistics")
     rows = []
     for model, stats in sorted(model_stats.items()):
         n = stats["count"]
         rows.append({
-            "Modell": model,
-            "Vergleiche": n,
-            "Erfolgsrate": f"{stats['successes'] / n * 100:.0f}%" if n else "-",
-            "Ø Tokens": f"{stats['total_tokens'] / n:.0f}" if n else "-",
-            "Ø Kosten ($)": f"{stats['cost_usd'] / n:.4f}" if n else "-",
-            "Ø Dauer (s)": f"{stats['duration_seconds'] / n:.1f}" if n else "-",
-            "Σ Kosten ($)": f"{stats['cost_usd']:.4f}",
+            "Model": model,
+            "Comparisons": n,
+            "Success Rate": f"{stats['successes'] / n * 100:.0f}%" if n else "-",
+            "Avg Tokens": f"{stats['total_tokens'] / n:.0f}" if n else "-",
+            "Avg Cost ($)": f"{stats['cost_usd'] / n:.4f}" if n else "-",
+            "Avg Duration (s)": f"{stats['duration_seconds'] / n:.1f}" if n else "-",
+            "Total Cost ($)": f"{stats['cost_usd']:.4f}",
         })
     st.table(rows)
 
 
 def show_comparison_dashboard() -> None:
-    """Rendert die Modellvergleich-Dashboard-Seite."""
-    st.header("Modellvergleich Dashboard")
+    """Renders the model comparison dashboard page."""
+    st.header("Model Comparison Dashboard")
 
     comparisons = _load_comparisons()
 
     if not comparisons:
-        st.info("Noch keine Vergleiche vorhanden. Nutze den Vergleichsmodus im Chat.")
+        st.info("No comparisons yet. Use comparison mode in the chat.")
         return
 
-    st.markdown(f"**{len(comparisons)}** gespeicherte Vergleiche")
+    st.markdown(f"**{len(comparisons)}** saved comparisons")
 
-    # Aggregierte Statistik und CSV-Download oben
     _render_aggregate_stats(comparisons)
 
     csv_data = _build_aggregate_csv(comparisons)
     st.download_button(
-        label="CSV-Export (alle Vergleiche)",
+        label="CSV Export (all comparisons)",
         data=csv_data,
-        file_name="modellvergleiche.csv",
+        file_name="model_comparisons.csv",
         mime="text/csv",
     )
 
     st.divider()
 
-    # Einzelvergleiche
     for i, comp in enumerate(comparisons):
         question = comp.get("question", "?")
         ts = comp.get("timestamp", "?")
@@ -234,10 +230,9 @@ def show_comparison_dashboard() -> None:
 
         with st.expander(f"{ts} -- {question[:80]}", expanded=(i == 0)):
             if not results:
-                st.warning("Keine Ergebnisse in diesem Vergleich.")
+                st.warning("No results in this comparison.")
                 continue
 
-            # Zusammenfassungstabelle
             table_data = []
             models = []
             tokens_list = []
@@ -253,20 +248,19 @@ def show_comparison_dashboard() -> None:
                 durations_list.append(m.get("duration_seconds", 0))
 
                 table_data.append({
-                    "Modell": model,
-                    "Erfolg": "Ja" if row.get("success") else "Nein",
-                    "Typ": row.get("analysis_type", "?"),
+                    "Model": model,
+                    "Success": "Yes" if row.get("success") else "No",
+                    "Type": row.get("analysis_type", "?"),
                     "Tokens": m.get("total_tokens", 0),
                     "Prompt": m.get("prompt_tokens", 0),
                     "Completion": m.get("completion_tokens", 0),
                     "Reasoning": m.get("reasoning_tokens", 0),
-                    "Kosten ($)": f"{m.get('cost_usd', 0):.4f}",
-                    "Dauer (s)": f"{m.get('duration_seconds', 0):.1f}",
+                    "Cost ($)": f"{m.get('cost_usd', 0):.4f}",
+                    "Duration (s)": f"{m.get('duration_seconds', 0):.1f}",
                 })
 
             st.table(table_data)
 
-            # Balkendiagramme nebeneinander
             if len(models) >= 2:
                 col1, col2, col3 = st.columns(3)
 
@@ -275,28 +269,23 @@ def show_comparison_dashboard() -> None:
                     st.bar_chart(dict(zip(models, tokens_list)))
 
                 with col2:
-                    st.markdown("**Kosten ($)**")
+                    st.markdown("**Cost ($)**")
                     st.bar_chart(dict(zip(models, costs_list)))
 
                 with col3:
-                    st.markdown("**Dauer (s)**")
+                    st.markdown("**Duration (s)**")
                     st.bar_chart(dict(zip(models, durations_list)))
 
-            # Per-Call-Breakdown
             _render_per_call_breakdown(results)
-
-            # Statistische Ergebnisse
             _render_statistical_results(results)
 
-            # Antworten nebeneinander
             if len(results) >= 2:
-                st.markdown("**Antworten im Vergleich:**")
+                st.markdown("**Answers Comparison:**")
                 cols = st.columns(len(results))
                 for col, row in zip(cols, results):
                     with col:
                         st.markdown(f"**{row.get('model', '?')}**")
-                        explanation = row.get("explanation", "Keine Antwort")
+                        explanation = row.get("explanation", "No answer")
                         st.markdown(explanation[:1000])
 
-            # Code-Vergleich
             _render_code_comparison(results)

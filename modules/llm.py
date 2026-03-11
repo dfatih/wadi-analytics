@@ -23,6 +23,7 @@ from modules.helper import (
     run_python_code,
     strip_code_fences,
 )
+from modules.language import detect_language, language_name
 from modules.disambiguator import (
     resolve_terms,
     format_resolved_terms,
@@ -333,11 +334,17 @@ def run_agent(
     resolved = resolve_terms(question)
     resolved_text = format_resolved_terms(resolved)
 
+    # Sprache der Benutzerfrage erkennen
+    user_lang = detect_language(question)
+    user_lang_name = language_name(user_lang)
+
     # System-Prompt aus Template rendern
     system_prompt = render_template("agent_system.jinja2", {
         "concepts": concepts,
         "resolved_terms": resolved_text,
         "cell_size": cell_size,
+        "user_lang": user_lang,
+        "user_lang_name": user_lang_name,
     }, folder="system")
 
     # User-Nachricht mit aufgeloesten Begriffen anreichern

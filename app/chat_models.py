@@ -23,7 +23,8 @@ def _truncate(text: str, limit: int) -> str:
     """Kuerzt einen String auf das Limit mit Hinweis."""
     if len(text) <= limit:
         return text
-    return text[:limit] + f"\n... (gekuerzt, {len(text)} Zeichen gesamt)"
+    from i18n import t
+    return text[:limit] + f"\n... ({t('truncated').format(n=len(text))})"
 
 
 # ---------------------------------------------------------------------------

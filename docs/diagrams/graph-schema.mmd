@@ -1,0 +1,46 @@
+erDiagram
+    Site {
+        string SiteID PK
+        string Category
+        string Location1
+        string Location2
+        string Surface
+        int NoOfFeatures
+        float X
+        float Y
+        float Lon
+        float Lat
+        float Shape_Length
+        float Shape_Area
+        point location
+        vector embedding
+    }
+
+    Feature {
+        string FeatureID PK
+        string Category
+        string Category2
+        int Age
+        string Condition
+        float Length
+        float Width
+        float Height
+        string Location1
+        string Location2
+        float X
+        float Y
+        float Lon
+        float Lat
+        point location
+        vector embedding
+    }
+
+    RockArtMotif {
+        string name PK
+    }
+
+    Site ||--o{ Feature : HAS_FEATURE
+    Feature }o--o{ RockArtMotif : "HAS_ROCKART {position}"
+    Site }o--o{ Site : "CLOSE_TO_SITE {distance_m}"
+    Feature }o--o{ Feature : "CLOSE_TO_FEATURE {distance_m}"
+    Feature }o--o{ Site : "NEAR {distance_m}"

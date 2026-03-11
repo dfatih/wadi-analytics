@@ -1,0 +1,61 @@
+flowchart LR
+    subgraph Input
+        Q[User Question]
+        C[(concepts.yml)]
+        T[(Jinja2 Templates)]
+    end
+
+    subgraph Disambiguation
+        R[resolve_terms]
+        RQ[ResolvedQuery<br/>terms + warnings]
+    end
+
+    subgraph Agent [LLM Agent Loop]
+        SP[System Prompt<br/>schema + concepts +<br/>resolved terms]
+        LLM[OpenAI GPT-4.1<br/>tool-use]
+    end
+
+    subgraph CypherTool [run_cypher_query]
+        FIX[fix_cypher_syntax]
+        VAL[validate_cypher_values]
+        AC[auto_correct_cypher]
+        EX[Execute on Neo4j]
+        JS[(analysis_input.json)]
+    end
+
+    subgraph AnalysisTool [run_spatial_analysis]
+        PY[Python Subprocess]
+        PYSAL[PySAL / ESDA<br/>Moran, LISA, Gi*]
+        GEO[(GeoJSON output)]
+        SUM[(summary.json)]
+    end
+
+    subgraph Output
+        ANS[Agent Answer<br/>with interpretation]
+        MET[Metrics<br/>tokens, cost, duration]
+        MAP[Interactive Map<br/>Pydeck + H3]
+    end
+
+    Q --> R
+    C --> R
+    R --> RQ
+    RQ --> SP
+    C --> SP
+    T --> SP
+    SP --> LLM
+
+    LLM -->|tool_call| FIX
+    FIX --> VAL --> AC --> EX
+    EX --> JS
+    JS -->|result| LLM
+
+    LLM -->|tool_call| PY
+    PY --> PYSAL
+    JS -.->|reads| PYSAL
+    PYSAL --> GEO
+    PYSAL --> SUM
+    SUM -->|result| LLM
+
+    LLM --> ANS
+    LLM --> MET
+    GEO --> MAP
